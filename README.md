@@ -31,6 +31,14 @@ Aplicativo **desktop offline para Windows** para cadastrar empresas e colaborado
 - Histórico, relatório CSV e backup consistente do SQLite com escolha do local.
 - Sem login obrigatório, telemetria ou assinaturas. O uso da folha continua offline; apenas a checagem opcional de updates precisa de internet.
 
+## Primeiro acesso e ajuda contextual
+
+Em uma instalação nova, sem empresas ou funcionários cadastrados, é exibida uma apresentação de boas-vindas com as ações **Iniciar apresentação** e **Pular por enquanto**. O tour possui sete etapas e percorre as áreas reais do aplicativo (Visão geral, Empresas, Funcionários, folha, Histórico e backup). Pode ser interrompido ou reiniciado a qualquer momento pelo botão **Ajuda e tour** no cabeçalho.
+
+Na Visão geral, o checklist de quatro tarefas usa exclusivamente o snapshot local canônico: empresa cadastrada, funcionário cadastrado, primeiro rascunho e primeiro documento finalizado. Ele não cria registros fictícios nem altera cálculos. O usuário pode ocultar o checklist ou restaurá-lo com **Ver checklist**. A indicação de primeira execução e a preferência visual são guardadas em armazenamento local da interface, sem conta e sem serviço externo. Instalações que já possuem dados não têm a apresentação automática. Os dados do SQLite continuam intactos.
+
+O teste de interface do GitHub Actions captura telas das boas-vindas e do tour, verifica que a apresentação não reaparece após a escolha do usuário e que o acesso ao tour permanece disponível.
+
 ## Desenvolvimento
 
 Requer **Node.js 24+** (use Node 24 no GitHub Actions).

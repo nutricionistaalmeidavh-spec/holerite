@@ -82,9 +82,27 @@ try {
   });
   page.on('dialog', dialog => dialog.accept());
   await page.setViewportSize({width:1440,height:960});
+  const welcome = page.getByRole('dialog', {name:'Bem-vindo ao ArtiSys Holerites'});
+  await welcome.waitFor();
+  await screenshot('00-boas-vindas', 'Boas-vindas: fluxo de primeiro acesso');
+  await welcome.getByRole('button', {name:'Iniciar apresentação'}).click();
+  const guide = page.getByRole('region', {name:'Tour guiado do sistema'});
+  await guide.waitFor();
+  await screenshot('00-tour-visao-geral', 'Tour: introdução e navegação');
+  await guide.getByRole('button', {name:'Próximo'}).click();
+  await page.getByRole('heading', {name:'Empresas cadastradas'}).waitFor();
+  await screenshot('00-tour-cadastro', 'Tour: passo de empresa');
+  await guide.getByRole('button', {name:'Pular tour'}).click();
+  await page.reload();
+  await page.getByRole('heading', {name:'Visão geral'}).waitFor();
+  assert.equal(await welcome.count(),0,'Boas-vindas não podem reaparecer após o usuário escolher iniciar');
+  assert.match(await page.locator('.setup-heading').innerText(), /0 de 4 etapas/);
+  await page.getByRole('button', {name:'Ajuda e tour'}).click();
+  await guide.waitFor();
+  await guide.getByRole('button', {name:'Pular tour'}).click();
   await page.getByText('Comece cadastrando sua empresa').waitFor();
 
-  await screenshot('01-primeiro-acesso', 'Visão geral: primeiro acesso sem empresa');
+  await screenshot('01-primeiro-acesso', 'Visão geral: primeiro acesso sem empresa e checklist');
   await go('Empresas');
   await screenshot('02-empresas-vazio', 'Empresas: lista vazia');
   await page.getByRole('button', {name:'Nova empresa'}).first().click();
@@ -181,7 +199,7 @@ try {
   }
   await verifyNoAlert();
   assert.equal(issues.filter(issue => issue.startsWith('JS:')).length, 0, 'Exceções JavaScript encontradas.');
-  assert.equal(manifest.length, 29, 'Quantidade de capturas inferior ao esperado.');
+  assert.equal(manifest.length, 32, 'Quantidade de capturas diferente do total esperado, incluindo boas-vindas e tour.');
 } catch (error) {
   failure = error;
   console.error('QA VISUAL FALHOU:', error);
