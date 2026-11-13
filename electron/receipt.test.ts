@@ -16,3 +16,17 @@ test('A4 document contains two copies, escaped employee data and reconciled tota
   assert.match(html,/Empresa &amp; Filhos/);
   assert.match(html,/Líquido a receber/);
 });
+
+test('Atlas receipt keeps two A4 copies with institutional palette and no external assets',()=>{
+ const company:Company={id:'x',legalName:'Exemplo Ltda',tradeName:'Exemplo',cnpj:'11222333000181',address:'Avenida Um',createdAt:''};
+ const employee:Employee={id:'y',companyId:'x',name:'Rita Nascimento',cpf:'',role:'Analista',admissionDate:'2026-01-01',salaryCents:300000,dependents:0,active:true,createdAt:''};
+ const calc=calculatePayroll({salaryCents:300000,competence:'2026-11',entries:[],taxMode:'automatic',dependents:0});
+ const record:PayrollRecord={kind:'vacation',id:'z',employeeId:'y',companyId:'x',competence:'2026-11',status:'finalized',paidAt:null,createdAt:'',updatedAt:'',details:{...calc,employee,company,competence:'2026-11',taxMode:'automatic',payableBy:'2026-11-12'}};
+ const html=receiptHTML(record);
+ assert.equal((html.match(/class="slip"/g)||[]).length,2);
+ assert.match(html,/#264E78/i);
+ assert.match(html,/RECIBO DE FÉRIAS/);
+ assert.match(html,/Via do empregador/);
+ assert.match(html,/Via do colaborador/);
+ assert.doesNotMatch(html,/<link\\b|<script\\b|@import/i);
+});
