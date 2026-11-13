@@ -1,4 +1,4 @@
-import { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync, backup } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { calculatePayroll } from '../src/shared/payroll';
 import type {Company, CompanyInput, Employee, EmployeeInput, PayrollDetails, PayrollInput, PayrollRecord, PayrollStatus, StateSnapshot} from '../src/shared/types';
@@ -47,6 +47,7 @@ export class HoleriteDatabase {
     `);
   }
   close() {this.db.close();}
+  async backupTo(path: string): Promise<void> { await backup(this.db, path); }
   private companyFrom(row: Row): Company {
     return {id:String(row.id),legalName:String(row.legal_name),tradeName:String(row.trade_name),cnpj:String(row.cnpj),address:String(row.address),createdAt:String(row.created_at)};
   }

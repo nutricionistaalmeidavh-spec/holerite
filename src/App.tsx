@@ -1,4 +1,4 @@
-import {useEffect, useMemo, useState, type FormEvent} from 'react';
+import {useEffect, useMemo, useState} from 'react';
 import type {Company, CompanyInput, Employee, EmployeeInput, PayItem, PayrollRecord, StateSnapshot, TaxMode} from './shared/types';
 import {calculatePayroll, money} from './shared/payroll';
 
@@ -93,7 +93,7 @@ function PayrollEditor({employee,competence,existing,busy,onSave,onFinalize,onPa
           <Field label="Cód."><input disabled={locked} value={item.code} maxLength={12} onChange={e=>modify(item.id,{code:e.target.value})}/></Field>
           <Field label="Descrição"><input disabled={locked} value={item.description} placeholder="Ex.: Horas extras" maxLength={100} onChange={e=>modify(item.id,{description:e.target.value})}/></Field>
           <Field label="Tipo"><select disabled={locked} value={item.kind} onChange={e=>modify(item.id,{kind:e.target.value as PayItem['kind'],inssBase:e.target.value==='earning',irBase:e.target.value==='earning',fgtsBase:e.target.value==='earning'})}><option value="earning">Vencimento</option><option value="deduction">Desconto</option></select></Field>
-          <Field label="Valor (R$)"><input disabled={locked} type="number" min="0" step="0.01" value={asReais(item.amountCents)} onChange={e=>modify(item.id,{amountCents:toCents(e.target.value)})}/></Field>
+          <Field label="Valor (R$)"><input disabled={locked} type="number" min="0" step="0.01" defaultValue={asReais(item.amountCents)} onChange={e=>modify(item.id,{amountCents:toCents(e.target.value)})}/></Field>
           <button type="button" className="icon-btn remove" disabled={locked} onClick={()=>setEntries(x=>x.filter(y=>y.id!==item.id))} aria-label="Remover lançamento"><Icon name="trash" size={17}/></button>
         </div>
         {item.kind==='earning'&&<div className="incidences"><span>Compõe a base de:</span>{(['inssBase','irBase','fgtsBase'] as const).map((key)=><label key={key}><input type="checkbox" disabled={locked} checked={item[key]} onChange={e=>modify(item.id,{[key]:e.target.checked})}/>{key==='inssBase'?'INSS':key==='irBase'?'IRRF':'FGTS'}</label>)}</div>}
@@ -127,7 +127,7 @@ function App() {
   const [editingCompany,setEditingCompany]=useState<Company|undefined>();
   const [editingEmployee,setEditingEmployee]=useState<Employee|undefined>();
   const [companyId,setCompanyId]=useState('');
-  const [competence,setCompetence]=useState(()=>new Date().toLocaleDateString('en-CA',{year:'numeric',month:'2-digit'}).slice(0,7));
+  const [competence,setCompetence]=useState(()=>String(new Date().getFullYear())+'-'+String(new Date().getMonth()+1).padStart(2,'0'));
   const [selectedEmployeeId,setSelectedEmployeeId]=useState('');
   const [search,setSearch]=useState('');
   const [sidebarOpen,setSidebarOpen]=useState(false);

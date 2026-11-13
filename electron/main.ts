@@ -1,5 +1,4 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
-import { DatabaseSync, backup } from 'node:sqlite';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { HoleriteDatabase } from './database';
@@ -54,7 +53,7 @@ function bindIPC() {
     const result=await dialog.showSaveDialog(mainWindow!,{title:'Backup da base local',defaultPath:`ArtiSys-Holerites-backup-${new Date().toISOString().slice(0,10)}.sqlite`,filters:[{name:'SQLite',extensions:['sqlite']}]});
     if(result.canceled || !result.filePath) return false;
     // Backup online consistente, inclusive se o arquivo estiver em WAL.
-    await backup((storage as unknown as {db:DatabaseSync}).db,result.filePath);
+    await storage.backupTo(result.filePath);
     return true;
   });
   bind('export-csv',async()=>{
