@@ -94,3 +94,17 @@ test('invalid batch competence must not create partial documents',()=>{
   assert.equal(db.snapshot().payrolls.length,0);
   db.close();
 });
+
+test('legacy employee edits preserve existing extra fields when omitted',()=>{
+  const db=new HoleriteDatabase(':memory:');
+  const company=db.saveCompany({legalName:'Empresa',tradeName:'',cnpj:'',address:''});
+  const original=db.saveEmployee({...employeeInput(company.id,'Ana','12345678909'),
+    registration:'M-31',bankAccount:'0001-9',recurringEntries:[entry]});
+  db.saveEmployee({...employeeInput(company.id,'Ana Atualizada','12345678909'),id:original.id,salaryCents:360000});
+  const current=db.getEmployee(original.id);
+  assert.equal(current.registration,'M-31');
+  assert.equal(current.bankAccount,'0001-9');
+  assert.equal(current.salaryCents,360000);
+  assert.deepEqual(current.recurringEntries,[entry]);
+  db.close();
+});

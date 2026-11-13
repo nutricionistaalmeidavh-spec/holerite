@@ -151,15 +151,15 @@ export class HoleriteDatabase {
     if (typeof input.active !== 'boolean') throw new Error('Situação do funcionário inválida.');
     const id=input.id ? required(input.id,'ID',50):randomUUID();
     const previous=input.id ? this.getEmployee(id) : null;
-    const registration=optional(input.registration??'','Matrícula',40);
-    const pis=digits(optional(input.pis??'','PIS/NIS',20));
+    const registration=optional(input.registration??previous?.registration??'','Matrícula',40);
+    const pis=digits(optional(input.pis??previous?.pis??'','PIS/NIS',20));
     if(pis && pis.length!==11) throw new Error('PIS/NIS deve conter 11 dígitos.');
-    const workHours=optional(input.workHours??'','Jornada',100);
-    const bankName=optional(input.bankName??'','Banco',100);
-    const bankBranch=optional(input.bankBranch??'','Agência',30);
-    const bankAccount=optional(input.bankAccount??'','Conta',50);
-    const pixKey=optional(input.pixKey??'','Chave Pix',120);
-    const recurringEntries=input.recurringEntries??[];
+    const workHours=optional(input.workHours??previous?.workHours??'','Jornada',100);
+    const bankName=optional(input.bankName??previous?.bankName??'','Banco',100);
+    const bankBranch=optional(input.bankBranch??previous?.bankBranch??'','Agência',30);
+    const bankAccount=optional(input.bankAccount??previous?.bankAccount??'','Conta',50);
+    const pixKey=optional(input.pixKey??previous?.pixKey??'','Chave Pix',120);
+    const recurringEntries=input.recurringEntries??previous?.recurringEntries??[];
     if(!Array.isArray(recurringEntries)||recurringEntries.length>100) throw new Error('Rubricas recorrentes inválidas.');
     calculatePayroll({salaryCents,dependents,competence:'2026-11',taxMode:'manual',entries:recurringEntries});
     if(cpf && this.db.prepare('SELECT id FROM employees WHERE company_id=? AND cpf=? AND id<>?').get(companyId,cpf,id))
