@@ -156,7 +156,7 @@ export class HoleriteDatabase {
     if(original && original.kind!==kind)throw new Error('Não é possível alterar o tipo de uma folha existente.');
     const calculation=kind==='monthly' ? calculatePayroll({salaryCents,competence:input.competence,dependents:employee.dependents,entries:input.entries,taxMode:input.taxMode}) :
       calculateSpecialPayroll({salaryCents,competence:input.competence,admissionDate:employee.admissionDate,dependents:employee.dependents,entries:input.entries,taxMode:input.taxMode,kind,options:input.options??{}});
-    const details: PayrollDetails = {...calculation,kind,options:input.options,employee:{...employee},company:{...company},competence:input.competence,taxMode:input.taxMode};
+    const details: PayrollDetails = {...calculation,salaryCents,kind,options:input.options,employee:{...employee},company:{...company},competence:input.competence,taxMode:input.taxMode};
     const already=this.db.prepare('SELECT id FROM payrolls WHERE employee_id=? AND competence=? AND kind=?').get(employee.id,input.competence,kind) as Row | undefined;
     if (already && String(already.id)!==id) throw new Error('Já existe um holerite para este funcionário nesta competência.');
     const updatedAt=now();

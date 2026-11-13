@@ -66,6 +66,7 @@ export interface PayrollCalculation {
 }
 
 export interface PayrollDetails extends PayrollCalculation {
+  salaryCents?: number;
   kind?: PayrollKind;
   options?: SpecialOptions;
   payableBy?: string;
