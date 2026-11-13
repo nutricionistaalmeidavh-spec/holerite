@@ -1,6 +1,7 @@
 export type ItemKind = 'earning' | 'deduction';
 export type PayrollStatus = 'draft' | 'finalized' | 'paid';
 export type TaxMode = 'automatic' | 'manual';
+import type {PayrollKind, SpecialOptions} from './special';
 
 export interface Company {
   id: string;
@@ -36,6 +37,8 @@ export interface PayItem {
 }
 
 export interface PayrollInput {
+  kind?: PayrollKind;
+  options?: SpecialOptions;
   id?: string;
   employeeId: string;
   competence: string;
@@ -63,6 +66,12 @@ export interface PayrollCalculation {
 }
 
 export interface PayrollDetails extends PayrollCalculation {
+  kind?: PayrollKind;
+  options?: SpecialOptions;
+  payableBy?: string;
+  fgtsPenaltyCents?: number;
+  noticeDays?: number;
+  warnings?: string[];
   employee: Employee;
   company: Company;
   competence: string;
@@ -70,6 +79,7 @@ export interface PayrollDetails extends PayrollCalculation {
 }
 
 export interface PayrollRecord {
+  kind: PayrollKind;
   id: string;
   employeeId: string;
   companyId: string;
