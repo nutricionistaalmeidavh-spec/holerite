@@ -11,7 +11,7 @@
     "build:electron": "esbuild electron/main.ts electron/preload.ts --bundle --platform=node --target=node24 --format=cjs --outdir=dist-electron --external:electron",
     "typecheck": "tsc --noEmit",
     "build": "npm run typecheck && npm run build:electron && vite build",
-    "test": "node --import tsx --test src/shared/payroll.test.ts electron/database.test.ts electron/receipt.test.ts",
+    "test": "node --import tsx --test src/shared/*.test.ts electron/*.test.ts",
     "dist:win": "npm run build && electron-builder --win nsis"
   },
   "dependencies": {
@@ -35,9 +35,29 @@
     "appId": "dev.artisys.holerites",
     "productName": "ArtiSys Holerites",
     "asar": true,
-    "directories": {"output": "release"},
-    "files": ["dist/**/*", "dist-electron/**/*", "package.json"],
-    "win": {"target": [{"target": "nsis", "arch": ["x64"]}], "artifactName": "ArtiSys-Holerites-Setup-${version}.${ext}"},
-    "nsis": {"oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true}
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "ArtiSys-Holerites-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    }
   }
 }
