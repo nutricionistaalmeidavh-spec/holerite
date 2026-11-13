@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {calculateSpecialPayroll, calculateNoticeDays, calculateThirteenthMonths} from './special';
+import {calculateInss2026} from './payroll';
 
 const base={salaryCents:300000,competence:'2026-11',admissionDate:'2025-01-01',dependents:0,taxMode:'automatic' as const,entries:[]};
 test('férias: 20 dias gozados, 10 vendidos, terços e incidências separadas',()=>{
@@ -27,7 +28,7 @@ test('13º segunda parcela: tributos sobre total do 13º, antecipação deduzida
   const r=calculateSpecialPayroll({...base,kind:'thirteenth-second',options:{thirteenth:{months:12,advanceCents:150000}}});
   assert.equal(r.totals.grossCents,300000);
   assert.equal(r.totals.fgtsBaseCents,150000);
-  assert.equal(r.totals.inssCents,calculateSpecialPayroll({...base,kind:'termination',taxMode:'manual',options:{termination:{date:'2026-11-20',reason:'with-cause',notice:'none',vacationAccrualStart:'2026-01-01',accruedPeriods:0,overduePeriods:0,fgtsPenaltyBasisCents:0,prior13thAdvanceCents:0}}}).totals.inssCents+25300);
+  assert.equal(r.totals.inssCents,calculateInss2026(300000));
   assert.equal(r.totals.irrfCents,0);
   assert.equal(r.totals.netCents,300000-150000-r.totals.inssCents);
   assert.ok(r.items.some(i=>i.code==='AD13'));
