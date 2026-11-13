@@ -1,7 +1,9 @@
 import {writeFile,mkdir} from 'node:fs/promises';
 import {dirname} from 'node:path';
-import {receiptHTML} from '../electron/receipt.ts';
-import {calculatePayroll} from '../src/shared/payroll.ts';
+import receiptModule from '../electron/receipt.ts';
+import payrollModule from '../src/shared/payroll.ts';
+const {receiptHTML}=receiptModule;
+const {calculatePayroll}=payrollModule;
 const filename=process.argv[2],scenario=process.argv[3]||'compact';
 if(!filename)throw new Error('Usage: qa-receipt-fixture <html file> <compact|extended>');
 const extra=[
