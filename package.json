@@ -8,15 +8,17 @@
   "license": "MIT",
   "scripts": {
     "dev": "npm run build:electron && concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron .\"",
-    "build:electron": "esbuild electron/main.ts electron/preload.ts --bundle --platform=node --target=node24 --format=cjs --outdir=dist-electron --external:electron",
+    "build:electron": "esbuild electron/main.ts electron/preload.ts --bundle --platform=node --target=node24 --format=cjs --outdir=dist-electron --external:electron --external:electron-updater",
     "typecheck": "tsc --noEmit",
     "build": "npm run typecheck && npm run build:electron && vite build",
     "test": "node --import tsx --test src/shared/*.test.ts electron/*.test.ts src/ui/*.test.tsx",
-    "dist:win": "npm run build && electron-builder --win nsis"
+    "dist:win": "npm run build && electron-builder --win nsis --publish never",
+    "publish:win": "npm run build && electron-builder --win nsis --publish always"
   },
   "dependencies": {
     "react": "19.2.0",
-    "react-dom": "19.2.0"
+    "react-dom": "19.2.0",
+    "electron-updater": "6.8.11"
   },
   "devDependencies": {
     "@types/node": "24.10.0",
@@ -58,6 +60,12 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "nutricionistaalmeidavh-spec",
+      "repo": "holerite",
+      "releaseType": "release"
     }
   }
 }
