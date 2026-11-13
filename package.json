@@ -11,7 +11,7 @@
     "build:electron": "esbuild electron/main.ts electron/preload.ts --bundle --platform=node --target=node24 --format=cjs --outdir=dist-electron --external:electron",
     "typecheck": "tsc --noEmit",
     "build": "npm run typecheck && npm run build:electron && vite build",
-    "test": "node --import tsx --test src/shared/*.test.ts electron/*.test.ts",
+    "test": "node --import tsx --test src/shared/*.test.ts electron/*.test.ts src/ui/*.test.tsx",
     "dist:win": "npm run build && electron-builder --win nsis"
   },
   "dependencies": {
