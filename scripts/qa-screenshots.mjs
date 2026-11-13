@@ -87,7 +87,7 @@ try {
   await screenshot('01-primeiro-acesso', 'Visão geral: primeiro acesso sem empresa');
   await go('Empresas');
   await screenshot('02-empresas-vazio', 'Empresas: lista vazia');
-  await page.getByRole('button', {name:'Nova empresa'}).click();
+  await page.getByRole('button', {name:'Nova empresa'}).first().click();
   let dialog = page.getByRole('dialog', {name:'Cadastro de empresa'});
   await dialog.waitFor();
   await screenshot('03-cadastro-empresa', 'Modal de cadastro de empresa');
