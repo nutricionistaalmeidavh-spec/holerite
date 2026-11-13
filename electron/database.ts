@@ -1,6 +1,8 @@
 import { DatabaseSync, backup } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { calculatePayroll } from '../src/shared/payroll';
+import {calculateSpecialPayroll} from '../src/shared/special';
+import type {PayrollKind} from '../src/shared/special';
 import type {Company, CompanyInput, Employee, EmployeeInput, PayrollDetails, PayrollInput, PayrollRecord, PayrollStatus, StateSnapshot} from '../src/shared/types';
 
 type Row = Record<string, unknown>;
@@ -39,12 +41,34 @@ export class HoleriteDatabase {
       CREATE TABLE IF NOT EXISTS payrolls (
         id TEXT PRIMARY KEY, company_id TEXT NOT NULL REFERENCES companies(id),
         employee_id TEXT NOT NULL REFERENCES employees(id), competence TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'monthly' CHECK(kind IN ('monthly','vacation','thirteenth-first','thirteenth-second','termination')),
         status TEXT NOT NULL CHECK(status IN ('draft','finalized','paid')),
         paid_at TEXT, details_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-        UNIQUE(employee_id, competence)
+        UNIQUE(employee_id, competence, kind)
       );
       CREATE INDEX IF NOT EXISTS idx_payroll_company_competence ON payrolls(company_id, competence);
     `);
+    this.migrateOldPayrolls();
+  }
+  private migrateOldPayrolls() {
+    const cols=this.db.prepare('PRAGMA table_info(payrolls)').all() as Row[];
+    if(cols.some(c=>c.name==='kind'))return;
+    this.db.exec('BEGIN IMMEDIATE;');
+    try {
+      this.db.exec(`CREATE TABLE payrolls_v2 (
+        id TEXT PRIMARY KEY, company_id TEXT NOT NULL REFERENCES companies(id),
+        employee_id TEXT NOT NULL REFERENCES employees(id), competence TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'monthly' CHECK(kind IN ('monthly','vacation','thirteenth-first','thirteenth-second','termination')),
+        status TEXT NOT NULL CHECK(status IN ('draft','finalized','paid')),
+        paid_at TEXT, details_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        UNIQUE(employee_id, competence, kind));
+        INSERT INTO payrolls_v2(id,company_id,employee_id,competence,kind,status,paid_at,details_json,created_at,updated_at)
+        SELECT id,company_id,employee_id,competence,'monthly',status,paid_at,details_json,created_at,updated_at FROM payrolls;
+        DROP TABLE payrolls;
+        ALTER TABLE payrolls_v2 RENAME TO payrolls;
+        CREATE INDEX IF NOT EXISTS idx_payroll_company_competence ON payrolls(company_id, competence);`);
+      this.db.exec('COMMIT;');
+    } catch(error){this.db.exec('ROLLBACK;');throw error;}
   }
   close() {this.db.close();}
   async backupTo(path: string): Promise<void> { await backup(this.db, path); }
@@ -55,7 +79,7 @@ export class HoleriteDatabase {
     return {id:String(row.id),companyId:String(row.company_id),name:String(row.name),cpf:String(row.cpf),role:String(row.role),admissionDate:String(row.admission_date),salaryCents:Number(row.salary_cents),dependents:Number(row.dependents),active:!!row.active,createdAt:String(row.created_at)};
   }
   private payrollFrom(row: Row): PayrollRecord {
-    return {id:String(row.id),companyId:String(row.company_id),employeeId:String(row.employee_id),competence:String(row.competence),status:String(row.status) as PayrollStatus,paidAt:row.paid_at ? String(row.paid_at):null,details:parseJSON<PayrollDetails>(row.details_json),createdAt:String(row.created_at),updatedAt:String(row.updated_at)};
+    return {id:String(row.id),companyId:String(row.company_id),employeeId:String(row.employee_id),competence:String(row.competence),kind:String(row.kind??'monthly') as PayrollKind,status:String(row.status) as PayrollStatus,paidAt:row.paid_at ? String(row.paid_at):null,details:parseJSON<PayrollDetails>(row.details_json),createdAt:String(row.created_at),updatedAt:String(row.updated_at)};
   }
   snapshot(): StateSnapshot {
     return {
@@ -127,15 +151,19 @@ export class HoleriteDatabase {
     if (original && original.status !== 'draft') throw new Error('Holerite finalizado não pode ser alterado. Apenas rascunhos são editáveis.');
     if (original && original.employeeId !== employee.id) throw new Error('Não é permitido alterar o funcionário de uma folha existente.');
     const salaryCents=input.salaryOverrideCents == null ? employee.salaryCents : cents(input.salaryOverrideCents,'Salário do holerite');
-    const calculation=calculatePayroll({salaryCents,competence:input.competence,dependents:employee.dependents,entries:input.entries,taxMode:input.taxMode});
-    const details: PayrollDetails = {...calculation,employee:{...employee},company:{...company},competence:input.competence,taxMode:input.taxMode};
-    const already=this.db.prepare('SELECT id FROM payrolls WHERE employee_id=? AND competence=?').get(employee.id,input.competence) as Row | undefined;
+    const kind=input.kind??'monthly';
+    if(!['monthly','vacation','thirteenth-first','thirteenth-second','termination'].includes(kind))throw new Error('Tipo de folha inválido.');
+    if(original && original.kind!==kind)throw new Error('Não é possível alterar o tipo de uma folha existente.');
+    const calculation=kind==='monthly' ? calculatePayroll({salaryCents,competence:input.competence,dependents:employee.dependents,entries:input.entries,taxMode:input.taxMode}) :
+      calculateSpecialPayroll({salaryCents,competence:input.competence,admissionDate:employee.admissionDate,dependents:employee.dependents,entries:input.entries,taxMode:input.taxMode,kind,options:input.options??{}});
+    const details: PayrollDetails = {...calculation,kind,options:input.options,employee:{...employee},company:{...company},competence:input.competence,taxMode:input.taxMode};
+    const already=this.db.prepare('SELECT id FROM payrolls WHERE employee_id=? AND competence=? AND kind=?').get(employee.id,input.competence,kind) as Row | undefined;
     if (already && String(already.id)!==id) throw new Error('Já existe um holerite para este funcionário nesta competência.');
     const updatedAt=now();
-    this.db.prepare(`INSERT INTO payrolls(id,company_id,employee_id,competence,status,paid_at,details_json,created_at,updated_at)
-      VALUES(?,?,?,?,'draft',NULL,?,?,?)
+    this.db.prepare(`INSERT INTO payrolls(id,company_id,employee_id,competence,kind,status,paid_at,details_json,created_at,updated_at)
+      VALUES(?,?,?,?,?,'draft',NULL,?,?,?)
       ON CONFLICT(id) DO UPDATE SET competence=excluded.competence, details_json=excluded.details_json, updated_at=excluded.updated_at`
-    ).run(id,company.id,employee.id,input.competence,JSON.stringify(details),original?.createdAt ?? updatedAt,updatedAt);
+    ).run(id,company.id,employee.id,input.competence,kind,JSON.stringify(details),original?.createdAt ?? updatedAt,updatedAt);
     return this.getPayroll(id);
   }
   finalizePayroll(id:string): PayrollRecord {
