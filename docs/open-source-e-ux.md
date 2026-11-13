@@ -12,6 +12,8 @@ Pesquisa em 13/11/2026. Requisito fixo: **R$ 0 obrigatório, software open sourc
 | P1 | [TanStack Table](https://github.com/TanStack/table) (MIT) | Colunas, ordenação, filtros por competência/tipo/status, paginação e seleção para emissão em lote | Recomendado quando histórico crescer |
 | P1 | [Mantine](https://github.com/mantinedev/mantine) (MIT) | Alternativa rápida a shadcn/ui: calendário, inputs, dialogs, notificações, tema | **Alternativa**, não instalar junto com shadcn sem decisão de design system |
 | P1 | [Apache ECharts](https://github.com/apache/echarts) (Apache-2.0) | Custos de folha por competência, obrigações e comparações anuais | Somente após garantir consistência dos dados de cálculo |
+| P1 | [pdfme](https://github.com/pdfme/pdfme) (MIT) | Designer visual WYSIWYG para personalizar modelos de holerite e PDF, sem backend externo | **Grande potencial**; não trocar o gerador atual antes de validar impressão e duas vias |
+| P1 | [Lucide](https://github.com/lucide-icons/lucide) (ISC/MIT) | Ícones profissionais, consistentes e leves para menus, estados e ações | Recomendado gradualmente |
 | P1 | [ExcelJS](https://github.com/exceljs/exceljs) (MIT) | Exportação de resumo da folha em XLSX com totais e fórmulas inspecionáveis | Opcional; CSV já funciona com R$ 0 |
 | P1 | [Playwright](https://github.com/microsoft/playwright) (Apache-2.0) | QA automatizado de cadastro, cálculo, exportação, navegação e capturas de tela | Recomendado em CI; sem serviço externo |
 | P2 | [Frappe HRMS](https://github.com/frappe/hrms) (GPL-3.0) | Referência arquitetural para políticas de férias, estrutura de salários e recibos | **Estudar, não copiar código**: licença copyleft e regras locais não equivalem à CLT brasileira |
@@ -41,7 +43,7 @@ Pesquisa em 13/11/2026. Requisito fixo: **R$ 0 obrigatório, software open sourc
 - [INSS — tabelas 2026](https://www.gov.br/inss/pt-br/direitos-e-deveres/inscricao-e-contribuicao/tabela-de-contribuicao-mensal)
 - [Receita — IRRF 2026](https://www.gov.br/receitafederal/pt-br/assuntos/meu-imposto-de-renda/tabelas/2026)
 - [Receita — redução de IR no 13º](https://www.gov.br/receitafederal/pt-br/assuntos/noticias/2025/dezembro/receita-federal-orienta-fontes-pagadoras-e-contribuintes-a-calcular-a-reducao-do-imposto-de-renda-a-partir-de-1o-de-janeiro-de-2026)
-- [MTE — dúvidas frequentes de férias e rescisão](https://www.gov.br/trabalho-e-emprego/pt-br/acesso-a-informacao/acoes-e-programas/programas-projetos-acoes-obras-atividades/proteja/duvidas-frequentes)
+- [MTE — dúvidas frequentes de férias e rescisão](https://www.gov.br/trabalho-e-emprego/pt-br/acesso-a-informacao/acoes-e-programas/programas-projetos-acoes-obras-e-atividades/proteja/duvidas-frequentes)
 - [CLT art. 484-A — rescisão por acordo](https://legis.senado.gov.br/norma/530547/publicacao/37353698)
 
 Nota: consulta aos repositórios e documentação não significa adoção automática de dependência. Antes de integrar, verificar licença e travar versão, executar testes e revisar segurança.
