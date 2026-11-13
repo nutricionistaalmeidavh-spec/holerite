@@ -1,6 +1,6 @@
 import {useEffect, useMemo, useState} from 'react';
 import type {Company, CompanyInput, Employee, EmployeeInput, PayItem, PayrollInput, PayrollRecord, StateSnapshot, TaxMode} from './shared/types';
-import {calculateSpecialPayroll} from './shared/special';
+import {calculateSpecialPayroll,calculateThirteenthMonths} from './shared/special';
 import type {PayrollKind, SpecialOptions, VacationOptions, ThirteenthOptions, TerminationOptions} from './shared/special';
 import {calculatePayroll, money} from './shared/payroll';
 
@@ -11,8 +11,10 @@ const payrollKindLabels: Record<PayrollKind,string> = {
 };
 const initialOptions=(kind:PayrollKind,competence:string,employee:Employee,advanceCents:number):SpecialOptions => {
   if(kind==='vacation')return {vacation:{startDate:competence+'-15',days:30,soldDays:0,acquisitionStart:employee.admissionDate}};
-  if(kind==='thirteenth-first')return {thirteenth:{months:12,advanceCents:0}};
-  if(kind==='thirteenth-second')return {thirteenth:{months:12,advanceCents}};
+  const year=Number(competence.slice(0,4));
+  const months=calculateThirteenthMonths(employee.admissionDate,String(year)+'-12-31',year);
+  if(kind==='thirteenth-first')return {thirteenth:{months,advanceCents:0}};
+  if(kind==='thirteenth-second')return {thirteenth:{months,advanceCents}};
   if(kind==='termination')return {termination:{date:competence+'-20',reason:'without-cause',notice:'indemnified',vacationAccrualStart:employee.admissionDate,accruedPeriods:0,overduePeriods:0,fgtsPenaltyBasisCents:0,prior13thAdvanceCents:advanceCents}};
   return {};
 };
