@@ -163,12 +163,12 @@ function PayrollEditor({employee,competence,kind,defaultAdvanceCents,existing,bu
       </div>)}
     </div>}
     {calculation.error&&!locked&&<div className="error-inline">{calculation.error}</div>}
-    {preview&&<div className="results">{'payableBy' in preview && preview.payableBy && <p className="due-note">Prazo legal previsto para pagamento: <strong>{brDate(preview.payableBy)}</strong></p>}{'fgtsPenaltyCents' in preview && Number(preview.fgtsPenaltyCents)>0 && <p className="due-note">Multa FGTS estimada (não compõe o líquido): <strong>{money(Number(preview.fgtsPenaltyCents))}</strong></p>}
+    {preview&&<div className="results">{'payableBy' in preview && typeof preview.payableBy==='string' && <p className="due-note">Prazo legal previsto para pagamento: <strong>{brDate(preview.payableBy)}</strong></p>}{'fgtsPenaltyCents' in preview && Number(preview.fgtsPenaltyCents)>0 && <p className="due-note">Multa FGTS estimada (não compõe o líquido): <strong>{money(Number(preview.fgtsPenaltyCents))}</strong></p>}
       <div className="results-title"><h3>Conferência da folha</h3><span>{locked?'Valores finalizados':'Prévia de cálculo'}</span></div>
       <div className="tax-cards"><div><span>INSS</span><b>{money(preview.totals.inssCents)}</b></div><div><span>IRRF</span><b>{money(preview.totals.irrfCents)}</b></div><div><span>FGTS patronal</span><b>{money(preview.totals.fgtsCents)}</b><small>Não descontado do salário</small></div></div>
       <div className="results-totals"><div><span>Total de vencimentos</span><strong>{money(preview.totals.grossCents)}</strong></div><div><span>Total de descontos</span><strong>{money(preview.totals.deductionCents)}</strong></div><div className="results-net"><span>Líquido a receber</span><strong>{money(preview.totals.netCents)}</strong></div></div>
     </div>}
-    {preview && 'warnings' in preview && Array.isArray(preview.warnings) && preview.warnings.map((w,i)=><p key={i} className="special-hint">{w}</p>)}
+    {preview && 'warnings' in preview && Array.isArray(preview.warnings) && preview.warnings.map((w,i)=><p key={i} className="special-hint">{String(w)}</p>)}
     {taxMode==='manual'&&!locked&&<p className="notice">No modo manual, o sistema não calcula nem insere INSS/IRRF. Cadastre os descontos aplicáveis como lançamentos e confira com o responsável pela folha.</p>}
     <div className="editor-actions">
       {!locked&&<Button icon="check" disabled={busy||!!calculation.error} onClick={()=>onSave({id:existing?.id,employeeId:employee.id,competence,kind,options:kind==='monthly'?undefined:specialOptions,entries,salaryOverrideCents:toCents(salaryText),taxMode})}>{existing?'Salvar alterações':'Salvar rascunho'}</Button>}
