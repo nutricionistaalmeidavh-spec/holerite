@@ -239,7 +239,7 @@ export function calculateSpecialPayroll(input:SpecialInput):SpecialResult {
     return {...item,inssBase:item.kind==='earning'&&item.inssBase,irBase:item.kind==='earning'&&item.irBase,fgtsBase:item.kind==='earning'&&item.fgtsBase};
   });
   if(new Set(extras.map(i=>i.id)).size!==extras.length)throw new Error('IDs de lançamento duplicados.');
-  const earnings=[...generated,...extras.filter(i=>i.kind==='earning')];
+  const earnings=[...generated.filter(i=>i.kind==='earning'),...extras.filter(i=>i.kind==='earning')];
   const deductions=extras.filter(i=>i.kind==='deduction');
   const sum=(items:PayItem[])=>items.reduce((s,i)=>s+i.amountCents,0);
   const taxable=earnings.filter(i=>i.inssBase);
