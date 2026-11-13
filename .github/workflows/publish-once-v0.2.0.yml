@@ -1,0 +1,89 @@
+name: Publish ArtiSys Holerites v0.2.0 (one-time)
+
+on:
+  push:
+    branches:
+      - 'release/publish-v0.2.0'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: artisys-holerites-0-2-0
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'nutricionistaalmeidavh-spec/holerite'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout main (only production code)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Confirm version and exact main commit
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          if ($version -ne '0.2.0') { throw "Expected version 0.2.0; got $version" }
+          git fetch origin main --tags
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to fetch main and tags.' }
+          $current = (git rev-parse HEAD).Trim()
+          $remoteMain = (git rev-parse origin/main).Trim()
+          if ($current -ne $remoteMain) { throw 'main moved after checkout; refusing to tag an unverified commit.' }
+          if ($current -ne '4b792e62ef2085409c9f066b637d475d3d8bd46e') { throw 'Unexpected main revision; refusing this one-time release.' }
+          $tag = (git tag --list 'v0.2.0').Trim()
+          if ($tag) {
+            $target = (git rev-list -n 1 v0.2.0).Trim()
+            if ($target -ne $current) { throw 'Release tag exists on a different commit.' }
+          }
+
+      - name: Install free open-source dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Unit and integration tests
+        run: npm test
+
+      - name: Build and type-check
+        run: npm run build
+
+      - name: Tag the validated main commit
+        shell: pwsh
+        run: |
+          $tag = (git tag --list 'v0.2.0').Trim()
+          if (-not $tag) {
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag v0.2.0
+            if ($LASTEXITCODE -ne 0) { throw 'Could not create release tag.' }
+            git push origin refs/tags/v0.2.0
+            if ($LASTEXITCODE -ne 0) { throw 'Could not push the release tag.' }
+          }
+
+      - name: Build Windows NSIS and publish GitHub release
+        run: npm run publish:win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Verify setup and update metadata
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if (-not (Test-Path 'release/latest.yml')) { throw 'Missing latest.yml for in-app updates.' }
+          $setup = Get-ChildItem 'release/ArtiSys-Holerites-Setup-0.2.0.exe' -ErrorAction SilentlyContinue
+          if (-not $setup) { throw 'Windows setup missing.' }
+          $release = gh release view v0.2.0 --repo $env:GITHUB_REPOSITORY --json isDraft,isPrerelease,assets,tagName | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Published GitHub release could not be inspected.' }
+          if ($release.isDraft -or $release.isPrerelease) { throw 'The release is not stable/public.' }
+          $names = @($release.assets | ForEach-Object { $_.name })
+          if ('latest.yml' -notin $names) { throw 'latest.yml missing in GitHub release.' }
+          if ('ArtiSys-Holerites-Setup-0.2.0.exe' -notin $names) { throw 'Installer missing in GitHub release.' }
