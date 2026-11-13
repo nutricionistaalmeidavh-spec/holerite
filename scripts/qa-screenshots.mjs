@@ -199,7 +199,7 @@ try {
   }
   await verifyNoAlert();
   assert.equal(issues.filter(issue => issue.startsWith('JS:')).length, 0, 'Exceções JavaScript encontradas.');
-  assert.equal(manifest.length, 29, 'Quantidade de capturas inferior ao esperado.');
+  assert.equal(manifest.length, 32, 'Quantidade de capturas diferente do total esperado, incluindo boas-vindas e tour.');
 } catch (error) {
   failure = error;
   console.error('QA VISUAL FALHOU:', error);
