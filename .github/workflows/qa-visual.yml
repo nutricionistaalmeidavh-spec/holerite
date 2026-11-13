@@ -1,0 +1,46 @@
+name: QA visual - Electron e screenshots
+
+on:
+  push:
+    branches:
+      - 'qa/**'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: holerites-qa-visual
+  cancel-in-progress: true
+
+jobs:
+  screenshots:
+    name: Navegacao e capturas (Electron real)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Instalar dependencias open source
+        run: npm install --no-audit --no-fund
+      - name: Testar regras e persistencia
+        run: npm test
+      - name: Typecheck e build completo
+        run: npm run build
+      - name: Capturar todas as telas e estados
+        run: xvfb-run -a -s '-screen 0 1600x1000x24' npm run qa:screenshots
+      - name: Publicar capturas, diagnostico e evidencia de falha
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ArtiSys-Holerites-QA-Screenshots
+          path: qa-artifacts/
+          if-no-files-found: warn
+          retention-days: 14
