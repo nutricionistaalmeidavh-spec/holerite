@@ -9,7 +9,7 @@ Aplicativo **desktop offline para Windows** para cadastrar empresas e colaborado
 - Impressão e PDF A4 usando a API nativa do Electron
 - Código MIT (dependências de código aberto)
 
-## Funcionalidades (v0.1.0)
+## Funcionalidades (v0.2.0)
 
 - Cadastro de múltiplas empresas, colaboradores, salários, cargos, CPF, CNPJ e dependentes.
 - Perfil complementar do funcionário: matrícula, PIS/NIS, jornada, banco, agência, conta, Pix e verbas mensais recorrentes.
@@ -48,7 +48,7 @@ Para criar o instalador do Windows (preferencialmente no Windows):
 npm run dist:win
 ```
 
-O resultado fica em `release/ArtiSys-Holerites-Setup-0.1.0.exe`. O arquivo ficará **sem assinatura de código**: o Windows SmartScreen poderá avisar. O workflow **Quality and Windows setup** também permite gerar um artefato manual via `workflow_dispatch`, sem publicar uma release.
+O resultado fica em `release/ArtiSys-Holerites-Setup-0.2.0.exe`. O arquivo ficará **sem assinatura de código**: o Windows SmartScreen poderá avisar. O workflow **Quality and Windows setup** também permite gerar um artefato manual via `workflow_dispatch`, sem publicar uma release.
 
 ### Atualizações via GitHub Releases
 
@@ -95,3 +95,12 @@ A identidade ArtiSys Atlas utiliza cores institucionais e tokens CSS locais em `
 `npm test` cobre cálculos com centavos, faixa progressiva, abatimento de IR, 13º, férias, rescisão, migração SQLite, recibos imutáveis, exclusividade de parcelas por ano, acessibilidade básica do seletor Atlas e contraste semântico das cores. No CI, testes e build rodam antes de integração em `main`. Código de UI roda com `sandbox`, `contextIsolation` e `nodeIntegration: false`; operações de disco e banco existem apenas no processo principal via canais IPC específicos. Não há canal genérico de SQL nem acesso indiscriminado ao sistema de arquivos.
 
 Fluxo de contribuição: branch → PR → QA → merge apenas após revisão/autorização.
+
+## Versão 0.2.0 — cadastro de funcionários e geração mensal em lote
+
+- Empresa e funcionários mantidos em SQLite local, com dados adicionais de matrícula, PIS/NIS, jornada e dados bancários.
+- Verbas recorrentes associadas ao colaborador, pré-preenchidas em novos holerites mensais.
+- Geração de rascunhos mensais em lote somente para funcionários ativos, preservando documentos da competência já existentes.
+- Migração aditiva dos perfis, mantendo os documentos anteriores e sua memória de cálculo.
+- A versão instalada consulta novas releases publicadas ao abrir; nenhuma atualização é obrigatória.
+- O instalador Windows é publicado com metadados de atualização do NSIS; não há assinaturas ou serviços pagos obrigatórios.
