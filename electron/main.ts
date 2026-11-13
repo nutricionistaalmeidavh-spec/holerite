@@ -85,10 +85,25 @@ function checkUpdatesAtStartup() {
         autoUpdater.autoDownload = false;
         autoUpdater.autoInstallOnAppQuit = false;
         autoUpdater.allowPrerelease = false;
+        autoUpdater.on('download-progress', progress => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.setProgressBar(Math.max(0, Math.min(1, progress.percent / 100)));
+          }
+        });
       },
       onAvailable: listener => { autoUpdater.on('update-available', listener); },
-      onDownloaded: listener => { autoUpdater.on('update-downloaded', listener); },
-      onError: listener => { autoUpdater.on('error', listener); },
+      onDownloaded: listener => {
+        autoUpdater.on('update-downloaded', info => {
+          if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setProgressBar(-1);
+          void listener(info);
+        });
+      },
+      onError: listener => {
+        autoUpdater.on('error', error => {
+          if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setProgressBar(-1);
+          listener(error);
+        });
+      },
       check: () => autoUpdater.checkForUpdates(),
       download: () => autoUpdater.downloadUpdate(),
       install: () => autoUpdater.quitAndInstall(false, true)
