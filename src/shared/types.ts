@@ -13,6 +13,15 @@ export interface Company {
 }
 
 export interface Employee {
+  /** Os campos extras são opcionais para ler snapshots legados. */
+  registration?: string;
+  pis?: string;
+  workHours?: string;
+  bankName?: string;
+  bankBranch?: string;
+  bankAccount?: string;
+  pixKey?: string;
+  recurringEntries?: PayItem[];
   id: string;
   companyId: string;
   name: string;
@@ -105,6 +114,14 @@ export interface CompanyInput {
   address: string;
 }
 export interface EmployeeInput {
+  registration?: string;
+  pis?: string;
+  workHours?: string;
+  bankName?: string;
+  bankBranch?: string;
+  bankAccount?: string;
+  pixKey?: string;
+  recurringEntries?: PayItem[];
   companyId: string;
   name: string;
   cpf: string;
@@ -115,10 +132,13 @@ export interface EmployeeInput {
   active: boolean;
 }
 
+export interface MonthlyBatchResult {created:number; skipped:number;}
+export interface MonthlyBatchInput {companyId:string;competence:string;taxMode:TaxMode;}
 export interface HoleriteAPI {
   snapshot(): Promise<StateSnapshot>;
   saveCompany(input: CompanyInput & {id?: string}): Promise<Company>;
   saveEmployee(input: EmployeeInput & {id?: string}): Promise<Employee>;
+  generateMonthlyBatch(input:MonthlyBatchInput):Promise<MonthlyBatchResult>;
   savePayroll(input: PayrollInput): Promise<PayrollRecord>;
   finalizePayroll(id: string): Promise<PayrollRecord>;
   markPaid(id: string): Promise<PayrollRecord>;

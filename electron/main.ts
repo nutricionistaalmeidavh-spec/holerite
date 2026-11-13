@@ -45,6 +45,7 @@ function bindIPC() {
   bind('snapshot',()=>storage.snapshot());
   bind('save-company',v=>storage.saveCompany(v));
   bind('save-employee',v=>storage.saveEmployee(v));
+  bind('generate-monthly-batch',v=>storage.generateMonthlyBatch(v));
   bind('save-payroll',v=>storage.savePayroll(v));
   bind('finalize',v=>storage.finalizePayroll(v));
   bind('mark-paid',v=>storage.markPaid(v));
