@@ -114,7 +114,7 @@ try {
   await field(recurring, 'Descrição').fill('Adicional de homologação');
   await field(recurring, 'Valor').fill('180.00');
   await screenshot('07-funcionario-verbas-recorrentes', 'Cadastro de funcionário com verba mensal recorrente');
-  await dialog.locator('.modal, .form-grid').first().evaluate(element => {element.scrollTop = element.scrollHeight;});
+  await dialog.evaluate(element => {element.scrollTop = element.scrollHeight;});
   await screenshot('08-funcionario-cadastro-completo', 'Formulário extenso de funcionário');
   await dialog.getByRole('button', {name:'Salvar funcionário'}).click();
   await dialog.waitFor({state:'hidden'});
