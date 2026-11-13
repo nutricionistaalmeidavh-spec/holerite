@@ -1,14 +1,15 @@
 import type { PayrollRecord } from '../src/shared/types';
 import { money } from '../src/shared/payroll';
+const receiptNames:Record<string,string>={monthly:'SALÁRIO',vacation:'FÉRIAS','thirteenth-first':'13º SALÁRIO — PRIMEIRA PARCELA','thirteenth-second':'13º SALÁRIO — SEGUNDA PARCELA',termination:'RESCISÃO CONTRATUAL'};
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
 function slip(p: PayrollRecord, copy: string) {
   const {employee,company,items,totals} = p.details;
   const rows = items.filter(i=>i.amountCents>0).map(i=>`<tr><td class="code">${esc(i.code)}</td><td>${esc(i.description)}</td><td class="currency">${i.kind==='earning'?esc(money(i.amountCents)):''}</td><td class="currency">${i.kind==='deduction'?esc(money(i.amountCents)):''}</td></tr>`).join('');
   return `<section class="slip">
-   <header><div><strong>${esc(company.legalName)}</strong><p>${esc(company.tradeName)} · CNPJ ${esc(company.cnpj)}</p><small>${esc(company.address)}</small></div><div class="receipt-head"><strong>RECIBO DE PAGAMENTO DE SALÁRIO</strong><p>Competência: ${esc(p.competence)}</p><small>${copy}</small></div></header>
+   <header><div><strong>${esc(company.legalName)}</strong><p>${esc(company.tradeName)} · CNPJ ${esc(company.cnpj)}</p><small>${esc(company.address)}</small></div><div class="receipt-head"><strong>RECIBO DE ${esc(receiptNames[p.kind??'monthly']??'PAGAMENTO')}</strong><p>Competência: ${esc(p.competence)}</p><small>${copy}</small>${p.details.payableBy?`<p>Data-limite de pagamento: ${esc(p.details.payableBy)}</p>`:''}</div></header>
    <div class="employee"><div><small>Colaborador</small><b>${esc(employee.name)}</b><span>CPF ${esc(employee.cpf)}</span></div><div><small>Cargo</small><b>${esc(employee.role)}</b><span>Admissão: ${esc(employee.admissionDate)}</span></div></div>
    <table><thead><tr><th>Cód.</th><th>Descrição</th><th>Vencimentos</th><th>Descontos</th></tr></thead><tbody>${rows}</tbody></table>
-   <div class="summary"><div class="bases"><span>Base INSS: ${esc(money(totals.inssBaseCents))}</span><span>Base IRRF: ${esc(money(totals.irBaseCents))}</span><span>Base FGTS: ${esc(money(totals.fgtsBaseCents))}</span><span>FGTS patronal (informativo): ${esc(money(totals.fgtsCents))}</span></div><div class="values"><div><span>Total vencimentos</span><b>${esc(money(totals.grossCents))}</b></div><div><span>Total descontos</span><b>${esc(money(totals.deductionCents))}</b></div><div class="net"><span>Líquido a receber</span><b>${esc(money(totals.netCents))}</b></div></div></div>
+   <div class="summary"><div class="bases"><span>Base INSS: ${esc(money(totals.inssBaseCents))}</span><span>Base IRRF: ${esc(money(totals.irBaseCents))}</span><span>Base FGTS: ${esc(money(totals.fgtsBaseCents))}</span><span>FGTS do período (informativo): ${esc(money(totals.fgtsCents))}</span>${p.details.fgtsPenaltyCents?`<span>Multa FGTS (não compõe líquido): ${esc(money(p.details.fgtsPenaltyCents))}</span>`:''}</div><div class="values"><div><span>Total vencimentos</span><b>${esc(money(totals.grossCents))}</b></div><div><span>Total descontos</span><b>${esc(money(totals.deductionCents))}</b></div><div class="net"><span>Líquido a receber</span><b>${esc(money(totals.netCents))}</b></div></div></div>
    <footer><span>Declaro ter recebido o valor líquido indicado neste documento.</span><div class="signature">Assinatura do colaborador / Data</div></footer>
   </section>`;
 }
