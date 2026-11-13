@@ -37,8 +37,8 @@ test('13º: valor pago anteriormente não pode superar total devido',()=>{
   assert.throws(()=>calculateSpecialPayroll({...base,kind:'thirteenth-second',options:{thirteenth:{months:6,advanceCents:300000}}}),/adiantamento/i);
 });
 test('avos de 13º: mês de admissão conta apenas com 15 dias ou mais',()=>{
-  assert.equal(calculateThirteenthMonths('2026-01-17','2026-03-31',2026),2);
-  assert.equal(calculateThirteenthMonths('2026-01-16','2026-03-31',2026),3);
+  assert.equal(calculateThirteenthMonths('2026-01-18','2026-03-31',2026),2);
+  assert.equal(calculateThirteenthMonths('2026-01-17','2026-03-31',2026),3);
   assert.equal(calculateThirteenthMonths('2025-06-01','2026-08-14',2026),7);
   assert.equal(calculateThirteenthMonths('2025-06-01','2026-08-15',2026),8);
 });
@@ -48,7 +48,7 @@ test('aviso indenizado proporcional por tempo de serviço e teto de 90 dias',()=
   assert.equal(calculateNoticeDays('2000-01-01','2026-10-20'),90);
 });
 test('rescisão sem justa causa: aviso, férias vencidas, proporcionais, 13º e multa em campo informativo',()=>{
-  const r=calculateSpecialPayroll({...base,kind:'termination',options:{termination:{date:'2026-10-20',reason:'without-cause',notice:'indemnified',vacationAccrualStart:'2026-01-01',accruedPeriods:1,overduePeriods:0,fgtsPenaltyBasisCents:1000000,prior13thAdvanceCents:0}}});
+  const r=calculateSpecialPayroll({...base,competence:'2026-10',kind:'termination',options:{termination:{date:'2026-10-20',reason:'without-cause',notice:'indemnified',vacationAccrualStart:'2026-01-01',accruedPeriods:1,overduePeriods:0,fgtsPenaltyBasisCents:1000000,prior13thAdvanceCents:0}}});
   assert.equal(r.fgtsPenaltyCents,400000);
   assert.equal(r.payableBy,'2026-10-30');
   assert.equal(r.noticeDays,33);
@@ -60,7 +60,7 @@ test('rescisão sem justa causa: aviso, férias vencidas, proporcionais, 13º e 
   assert.equal(r.items.some(i=>i.code==='MULTA40'),false);
 });
 test('rescisão com justa causa não gera aviso/13º/férias proporcionais',()=>{
-  const r=calculateSpecialPayroll({...base,kind:'termination',options:{termination:{date:'2026-10-20',reason:'with-cause',notice:'none',vacationAccrualStart:'2026-01-01',accruedPeriods:1,overduePeriods:0,fgtsPenaltyBasisCents:1000000,prior13thAdvanceCents:0}}});
+  const r=calculateSpecialPayroll({...base,competence:'2026-10',kind:'termination',options:{termination:{date:'2026-10-20',reason:'with-cause',notice:'none',vacationAccrualStart:'2026-01-01',accruedPeriods:1,overduePeriods:0,fgtsPenaltyBasisCents:1000000,prior13thAdvanceCents:0}}});
   assert.equal(r.fgtsPenaltyCents,0);
   assert.ok(r.items.some(i=>i.code==='FER-V'));
   assert.ok(!r.items.some(i=>i.code==='FER-P'));
@@ -68,7 +68,7 @@ test('rescisão com justa causa não gera aviso/13º/férias proporcionais',()=>
 });
 test('rescisão por acordo: metade do aviso indenizado e multa FGTS de 20%',()=>{
   const params={date:'2026-10-20',reason:'mutual' as const,notice:'indemnified' as const,vacationAccrualStart:'2026-01-01',accruedPeriods:0,overduePeriods:0,fgtsPenaltyBasisCents:1000000,prior13thAdvanceCents:0};
-  const r=calculateSpecialPayroll({...base,kind:'termination',options:{termination:params}});
+  const r=calculateSpecialPayroll({...base,competence:'2026-10',kind:'termination',options:{termination:params}});
   assert.equal(r.fgtsPenaltyCents,200000);
   assert.equal(r.items.find(i=>i.code==='AVISO')?.amountCents,165000);
 });
