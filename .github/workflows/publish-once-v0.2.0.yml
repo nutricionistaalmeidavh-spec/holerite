@@ -39,7 +39,7 @@ jobs:
           $remoteMain = (git rev-parse origin/main).Trim()
           if ($current -ne $remoteMain) { throw 'main moved after checkout; refusing to tag an unverified commit.' }
           if ($current -ne '4b792e62ef2085409c9f066b637d475d3d8bd46e') { throw 'Unexpected main revision; refusing this one-time release.' }
-          $tag = (git tag --list 'v0.2.0').Trim()
+          $tag = @(git tag --list 'v0.2.0')
           if ($tag) {
             $target = (git rev-list -n 1 v0.2.0).Trim()
             if ($target -ne $current) { throw 'Release tag exists on a different commit.' }
@@ -57,7 +57,7 @@ jobs:
       - name: Tag the validated main commit
         shell: pwsh
         run: |
-          $tag = (git tag --list 'v0.2.0').Trim()
+          $tag = @(git tag --list 'v0.2.0')
           if (-not $tag) {
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
