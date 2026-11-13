@@ -1,0 +1,62 @@
+name: QA print - A4 holerite PDF
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - electron/receipt.ts
+      - electron/receipt.test.ts
+      - scripts/qa-receipt-*
+      - .github/workflows/qa-receipt.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  pdf-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Instalar dependencias
+        run: npm install --no-audit --no-fund
+      - name: Validar regras e compilar
+        run: |
+          npm test
+          npm run build
+      - name: Garantir conversor PDF open source
+        run: command -v pdftoppm && command -v pdfinfo || (sudo apt-get update && sudo apt-get install -y poppler-utils)
+      - name: Gerar HTML pelo motor real
+        run: |
+          mkdir -p qa-artifacts/receipt
+          node --import tsx scripts/qa-receipt-fixture.mjs qa-artifacts/receipt/holerite-normal.html compact
+          node --import tsx scripts/qa-receipt-fixture.mjs qa-artifacts/receipt/holerite-extenso.html extended
+      - name: Renderizar PDF nativo do Electron
+        run: |
+          xvfb-run -a -s '-screen 0 1600x1100x24' ./node_modules/.bin/electron --no-sandbox scripts/qa-receipt-electron.cjs qa-artifacts/receipt/holerite-normal.html qa-artifacts/receipt/holerite-normal.pdf
+          xvfb-run -a -s '-screen 0 1600x1100x24' ./node_modules/.bin/electron --no-sandbox scripts/qa-receipt-electron.cjs qa-artifacts/receipt/holerite-extenso.html qa-artifacts/receipt/holerite-extenso.pdf
+      - name: Validar paginas e textos reais no PDF
+        shell: bash
+        run: |
+          set -euo pipefail
+          one=$(pdfinfo qa-artifacts/receipt/holerite-normal.pdf | awk '/^Pages:/ {print $2}')
+          two=$(pdfinfo qa-artifacts/receipt/holerite-extenso.pdf | awk '/^Pages:/ {print $2}')
+          echo "PDF normal: $one pagina(s). PDF extenso: $two pagina(s)."
+          test "$one" = "1"
+          test "$two" -ge 2
+          pdftotext qa-artifacts/receipt/holerite-normal.pdf qa-artifacts/receipt/texto.txt
+          grep -q "Proventos" qa-artifacts/receipt/texto.txt
+          grep -q "Descontos" qa-artifacts/receipt/texto.txt
+          grep -q "Salário Líquido" qa-artifacts/receipt/texto.txt
+          test "$(grep -c 'Colaborador Demonstração QA' qa-artifacts/receipt/texto.txt)" -eq 2
+          pdftoppm -f 1 -singlefile -png -r 160 qa-artifacts/receipt/holerite-normal.pdf qa-artifacts/receipt/holerite-normal
+          pdftoppm -f 1 -singlefile -png -r 160 qa-artifacts/receipt/holerite-extenso.pdf qa-artifacts/receipt/holerite-extenso
+      - name: Publicar amostras A4 e prints reais
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Holerites-Modelo-Impressao-Real
+          path: qa-artifacts/receipt/
+          if-no-files-found: warn
+          retention-days: 14
