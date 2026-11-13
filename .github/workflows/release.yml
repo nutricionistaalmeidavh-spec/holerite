@@ -1,0 +1,61 @@
+name: Publish Holerites Windows release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: holerites-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout completo para validar origem da tag
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Validar versão e origem na main
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          if ("v$version" -ne $env:GITHUB_REF_NAME) {
+            throw "A tag deve corresponder à versão do package.json: v$version"
+          }
+          git fetch origin main
+          git merge-base --is-ancestor $env:GITHUB_SHA origin/main
+          if ($LASTEXITCODE -ne 0) {
+            throw "A tag de release precisa apontar para um commit presente na main."
+          }
+
+      - name: Instalar dependências
+        run: npm install --no-audit --no-fund
+
+      - name: Testes automatizados
+        run: npm test
+
+      - name: Verificar tipos e build
+        run: npm run build
+
+      - name: Gerar NSIS e publicar release com latest.yml
+        run: npm run publish:win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Conferir metadados e instalador
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'release/latest.yml')) { throw 'latest.yml não foi gerado' }
+          $setup = Get-ChildItem 'release/ArtiSys-Holerites-Setup-*.exe'
+          if (-not $setup) { throw 'O instalador NSIS não foi gerado' }
