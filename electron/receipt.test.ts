@@ -14,7 +14,7 @@ test('A4 document contains two copies, escaped employee data and reconciled tota
   assert.equal(html.includes('Pessoa <script>'),false);
   assert.match(html,/Pessoa &lt;script&gt;/);
   assert.match(html,/Empresa &amp; Filhos/);
-  assert.match(html,/Líquido a receber/);
+  assert.match(html,/Salário Líquido/);
 });
 
 test('compact A4 receipt uses neutral monochrome styling with independent earnings and deductions',()=>{
