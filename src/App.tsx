@@ -1,5 +1,5 @@
 import {useEffect, useMemo, useState} from 'react';
-import type {Company, CompanyInput, Employee, EmployeeInput, PayItem, PayrollInput, PayrollRecord, StateSnapshot, TaxMode} from './shared/types';
+import type {Company, CompanyInput, Employee, EmployeeInput, MonthlyBatchResult, PayItem, PayrollInput, PayrollRecord, StateSnapshot, TaxMode} from './shared/types';
 import {calculateSpecialPayroll,calculateThirteenthMonths} from './shared/special';
 import type {PayrollKind, SpecialOptions, VacationOptions, ThirteenthOptions, TerminationOptions} from './shared/special';
 import {calculatePayroll, money} from './shared/payroll';
@@ -65,17 +65,41 @@ function CompanyForm({initial,onSave,onClose,busy}: {initial?:Company;onSave:(v:
   </form>;
 }
 function EmployeeForm({initial,companies,companyId,onSave,onClose,busy}: {initial?:Employee;companies:Company[];companyId:string;onSave:(v:EmployeeInput & {id?:string})=>void;onClose:()=>void;busy:boolean}) {
-  const [v,setV]=useState({companyId:initial?.companyId??companyId??companies[0]?.id??'',name:initial?.name??'',cpf:initial?.cpf??'',role:initial?.role??'',admissionDate:initial?.admissionDate??new Date().toISOString().slice(0,10),salary:initial?asReais(initial.salaryCents):'',dependents:String(initial?.dependents??0),active:initial?.active??true});
+  const [v,setV]=useState({companyId:initial?.companyId??companyId??companies[0]?.id??'',name:initial?.name??'',cpf:initial?.cpf??'',role:initial?.role??'',admissionDate:initial?.admissionDate??new Date().toISOString().slice(0,10),salary:initial?asReais(initial.salaryCents):'',dependents:String(initial?.dependents??0),active:initial?.active??true,registration:initial?.registration??'',pis:initial?.pis??'',workHours:initial?.workHours??'',bankName:initial?.bankName??'',bankBranch:initial?.bankBranch??'',bankAccount:initial?.bankAccount??'',pixKey:initial?.pixKey??''});
+  const [recurringEntries,setRecurringEntries]=useState<PayItem[]>(initial?.recurringEntries??[]);
+  const editRecurring=(id:string,patch:Partial<PayItem>)=>setRecurringEntries(items=>items.map(item=>item.id===id?{...item,...patch}:item));
   const change=(key:keyof typeof v,value:string|boolean)=>setV(s=>({...s,[key]:value}));
-  return <form className="form-grid" onSubmit={e=>{e.preventDefault();onSave({id:initial?.id,companyId:v.companyId,name:v.name,cpf:v.cpf,role:v.role,admissionDate:v.admissionDate,salaryCents:toCents(v.salary),dependents:Number(v.dependents),active:v.active});}}>
+  return <form className="form-grid" onSubmit={e=>{e.preventDefault();onSave({id:initial?.id,companyId:v.companyId,name:v.name,cpf:v.cpf,role:v.role,admissionDate:v.admissionDate,salaryCents:toCents(v.salary),dependents:Number(v.dependents),active:v.active,registration:v.registration,pis:v.pis,workHours:v.workHours,bankName:v.bankName,bankBranch:v.bankBranch,bankAccount:v.bankAccount,pixKey:v.pixKey,recurringEntries});}}>
     <Field label="Empresa *"><select required value={v.companyId} onChange={e=>change('companyId',e.target.value)}>{companies.map(c=><option key={c.id} value={c.id}>{c.tradeName||c.legalName}</option>)}</select></Field>
     <Field label="Nome completo *"><input required value={v.name} onChange={e=>change('name',e.target.value)} autoFocus maxLength={150}/></Field>
     <Field label="CPF"><input value={v.cpf} onChange={e=>change('cpf',e.target.value)} placeholder="11 dígitos" maxLength={14}/></Field>
+    <Field label="Matrícula"><input value={v.registration} onChange={e=>change('registration',e.target.value)} maxLength={40}/></Field>
+    <Field label="PIS/NIS"><input value={v.pis} onChange={e=>change('pis',e.target.value)} placeholder="11 dígitos" maxLength={20}/></Field>
+    <Field label="Jornada de trabalho"><input value={v.workHours} onChange={e=>change('workHours',e.target.value)} placeholder="Ex.: 44 horas semanais" maxLength={100}/></Field>
+    <Field label="Banco"><input value={v.bankName} onChange={e=>change('bankName',e.target.value)} maxLength={100}/></Field>
+    <Field label="Agência"><input value={v.bankBranch} onChange={e=>change('bankBranch',e.target.value)} maxLength={30}/></Field>
+    <Field label="Conta"><input value={v.bankAccount} onChange={e=>change('bankAccount',e.target.value)} maxLength={50}/></Field>
+    <Field label="Chave Pix"><input value={v.pixKey} onChange={e=>change('pixKey',e.target.value)} maxLength={120}/></Field>
     <Field label="Cargo *"><input required value={v.role} onChange={e=>change('role',e.target.value)} maxLength={150}/></Field>
     <Field label="Admissão *"><input type="date" required value={v.admissionDate} onChange={e=>change('admissionDate',e.target.value)}/></Field>
     <Field label="Salário mensal (R$) *"><input type="number" required min="0.01" step="0.01" value={v.salary} onChange={e=>change('salary',e.target.value)}/></Field>
     <Field label="Dependentes para IRRF"><input type="number" required min="0" max="30" step="1" value={v.dependents} onChange={e=>change('dependents',e.target.value)}/></Field>
     <Field label="Situação"><select value={String(v.active)} onChange={e=>change('active',e.target.value==='true')}><option value="true">Ativo</option><option value="false">Inativo</option></select></Field>
+    <section className="employee-recurring">
+      <div className="section-bar"><div><h3>Verbas mensais recorrentes</h3><p>Adicionais e descontos pré-preenchidos nos novos holerites mensais. Não se aplicam automaticamente a férias, 13º ou rescisão.</p></div>
+        <Button variant="secondary" icon="plus" disabled={busy||recurringEntries.length>=100} onClick={()=>setRecurringEntries(items=>[...items,blankEntry()])}>Adicionar verba</Button>
+      </div>
+      {recurringEntries.length===0?<p className="no-recurring">Nenhuma verba recorrente cadastrada.</p>:<div className="entries">{recurringEntries.map(item=><div className="entry-row" key={item.id}>
+        <div className="entry-grid">
+          <Field label="Código"><input maxLength={12} value={item.code} onChange={e=>editRecurring(item.id,{code:e.target.value})}/></Field>
+          <Field label="Descrição"><input maxLength={100} required value={item.description} onChange={e=>editRecurring(item.id,{description:e.target.value})}/></Field>
+          <Field label="Tipo"><select value={item.kind} onChange={e=>editRecurring(item.id,{kind:e.target.value as PayItem['kind'],inssBase:e.target.value==='earning',irBase:e.target.value==='earning',fgtsBase:e.target.value==='earning'})}><option value="earning">Vencimento</option><option value="deduction">Desconto</option></select></Field>
+          <Field label="Valor (R$)"><input type="number" required min="0.01" step="0.01" defaultValue={asReais(item.amountCents)} onChange={e=>editRecurring(item.id,{amountCents:toCents(e.target.value)})}/></Field>
+          <button type="button" className="icon-btn remove" aria-label="Remover verba recorrente" onClick={()=>setRecurringEntries(items=>items.filter(entry=>entry.id!==item.id))}><Icon name="trash" size={17}/></button>
+        </div>
+        {item.kind==='earning'&&<div className="incidences"><span>Base tributária:</span>{(['inssBase','irBase','fgtsBase'] as const).map(key=><label key={key}><input type="checkbox" checked={item[key]} onChange={e=>editRecurring(item.id,{[key]:e.target.checked})}/>{key==='inssBase'?'INSS':key==='irBase'?'IRRF':'FGTS'}</label>)}</div>}
+      </div>)}</div>}
+    </section>
     <div className="form-actions"><Button variant="secondary" onClick={onClose}>Cancelar</Button><Button type="submit" icon="check" disabled={busy}>Salvar funcionário</Button></div>
   </form>;
 }
@@ -136,7 +160,7 @@ function PayrollEditor({employee,competence,kind,defaultAdvanceCents,existing,bu
   const savedSalary=existing?.details.salaryCents??employee.salaryCents;
   const [salaryText,setSalaryText]=useState(asReais(savedSalary));
   const [taxMode,setTaxMode]=useState<TaxMode>(existing?.details.taxMode??(competence.startsWith('2026-')?'automatic':'manual'));
-  const [entries,setEntries]=useState<PayItem[]>(existing?.details.items.filter(i=>!i.id.startsWith('generated:')&&!['SAL','INSS','IRRF'].includes(i.code))??[]);
+  const [entries,setEntries]=useState<PayItem[]>(existing?.details.items.filter(i=>!i.id.startsWith('generated:')&&!['SAL','INSS','IRRF'].includes(i.code))??(kind==='monthly'?(employee.recurringEntries??[]):[]));
   const [specialOptions,setSpecialOptions]=useState<SpecialOptions>(existing?.details.options??initialOptions(kind,competence,employee,defaultAdvanceCents));
   const locked=!!existing&&existing.status!=='draft';
   const modify=(id:string, patch:Partial<PayItem>)=>setEntries(s=>s.map(x=>x.id===id?{...x,...patch}:x));
@@ -204,7 +228,7 @@ function App() {
   const [sidebarOpen,setSidebarOpen]=useState(false);
   const reload=async()=>{const snapshot=await window.holerites.snapshot();setData(snapshot);setCompanyId(id=>snapshot.companies.some(c=>c.id===id)?id:(snapshot.companies[0]?.id??''));};
   useEffect(()=>{reload().catch(e=>setError(String(e))).finally(()=>setLoading(false));},[]);
-  async function act(task:()=>Promise<unknown>,message?:string) {setBusy(true);setError('');setToast('');try{await task();await reload();if(message)setToast(message);}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setBusy(false);}}
+  async function act(task:()=>Promise<unknown>,message?:string|((result:unknown)=>string)) {setBusy(true);setError('');setToast('');try{const result=await task();await reload();if(message)setToast(typeof message==='function'?message(result):message);}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setBusy(false);}}
   const employees=useMemo(()=>data.employees.filter(e=>!companyId||e.companyId===companyId),[data.employees,companyId]);
   const payrolls=useMemo(()=>data.payrolls.filter(p=>!companyId||p.companyId===companyId),[data.payrolls,companyId]);
   const currentPayrolls=payrolls.filter(p=>p.competence===competence);
@@ -240,7 +264,7 @@ function App() {
     <div className="main">
       <header className="topbar"><div className="topbar-left"><button className="menu-toggle" onClick={()=>setSidebarOpen(true)} aria-label="Abrir menu"><Icon name="menu"/></button><span className="crumb">Workspace</span><span className="crumb-sep">/</span><strong>{title[tab]}</strong></div><div className="topbar-right">{data.companies.length>0&&companyPicker}<div className="avatar" title="ArtiSys Holerites">AS</div></div></header>
       <main className="page">
-        <div className="page-heading"><div><div className="eyebrow">ARTISYS · GESTÃO DE PESSOAS</div><h1>{title[tab]}</h1><p>{tab==='dashboard'?'Acompanhe seus lançamentos e recibos em um só lugar.':tab==='payroll'?'Calcule, confira e emita seus holerites.':tab==='employees'?'Cadastros e remunerações da equipe.':tab==='companies'?'Dados de identificação para seus recibos.':'Consulte, imprima e exporte comprovantes já emitidos.'}</p></div><div className="heading-actions">{(tab==='dashboard'||tab==='payroll')&&monthPicker}{tab==='dashboard'&&data.companies.length>0&&<Button icon="plus" onClick={()=>startKind('monthly')}>Novo documento</Button>}{tab==='employees'&&<Button icon="plus" disabled={!data.companies.length} onClick={()=>openEmployee()}>Novo funcionário</Button>}{tab==='companies'&&<Button icon="plus" onClick={()=>openCompany()}>Nova empresa</Button>}{tab==='history'&&<Button variant="secondary" icon="download" onClick={()=>void act(()=>window.holerites.exportCSV(),'Relatório CSV exportado.')}>Exportar CSV</Button>}</div></div>
+        <div className="page-heading"><div><div className="eyebrow">ARTISYS · GESTÃO DE PESSOAS</div><h1>{title[tab]}</h1><p>{tab==='dashboard'?'Acompanhe seus lançamentos e recibos em um só lugar.':tab==='payroll'?'Calcule, confira e emita seus holerites.':tab==='employees'?'Cadastros e remunerações da equipe.':tab==='companies'?'Dados de identificação para seus recibos.':'Consulte, imprima e exporte comprovantes já emitidos.'}</p></div><div className="heading-actions">{(tab==='dashboard'||tab==='payroll')&&monthPicker}{tab==='payroll'&&data.companies.length>0&&<Button variant="secondary" icon="plus" disabled={busy||!employees.some(e=>e.active)} onClick={()=>{if(ask('Gerar rascunhos mensais apenas para funcionários ativos ainda sem holerite nesta competência? Documentos existentes serão preservados.'+(competence.startsWith('2026-')?'':' Os tributos desta competência serão manuais.')))void act(()=>window.holerites.generateMonthlyBatch({companyId,competence,taxMode:competence.startsWith('2026-')?'automatic':'manual'}),result=>{const summary=result as MonthlyBatchResult;return `Lote concluído: ${summary.created} criado(s) e ${summary.skipped} já existente(s).`;});}}>Gerar mês em lote</Button>}{tab==='dashboard'&&data.companies.length>0&&<Button icon="plus" onClick={()=>startKind('monthly')}>Novo documento</Button>}{tab==='employees'&&<Button icon="plus" disabled={!data.companies.length} onClick={()=>openEmployee()}>Novo funcionário</Button>}{tab==='companies'&&<Button icon="plus" onClick={()=>openCompany()}>Nova empresa</Button>}{tab==='history'&&<Button variant="secondary" icon="download" onClick={()=>void act(()=>window.holerites.exportCSV(),'Relatório CSV exportado.')}>Exportar CSV</Button>}</div></div>
         {error&&<div className="error-banner" role="alert"><span>{error}</span><button aria-label="Fechar erro" onClick={()=>setError('')}><Icon name="close" size={16}/></button></div>}
         {toast&&<div className="success-banner" role="status"><Icon name="check" size={17}/>{toast}<button onClick={()=>setToast('')} aria-label="Fechar aviso"><Icon name="close" size={15}/></button></div>}
         {data.companies.length===0&&tab!=='companies'?<div className="card"><Empty title="Comece cadastrando sua empresa" description="O primeiro passo é informar os dados que aparecerão nos recibos de salário." action={<Button icon="plus" onClick={()=>openCompany()}>Cadastrar empresa</Button>}/></div>:null}

@@ -5,6 +5,7 @@ const api: HoleriteAPI = {
   snapshot: () => call('snapshot'),
   saveCompany: input => call('save-company', input),
   saveEmployee: input => call('save-employee', input),
+  generateMonthlyBatch: input => call('generate-monthly-batch', input),
   savePayroll: input => call('save-payroll', input),
   finalizePayroll: id => call('finalize', id),
   markPaid: id => call('mark-paid', id),

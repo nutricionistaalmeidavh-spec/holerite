@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { calculatePayroll } from '../src/shared/payroll';
 import {calculateSpecialPayroll} from '../src/shared/special';
 import type {PayrollKind} from '../src/shared/special';
-import type {Company, CompanyInput, Employee, EmployeeInput, PayrollDetails, PayrollInput, PayrollRecord, PayrollStatus, StateSnapshot} from '../src/shared/types';
+import type {Company, CompanyInput, Employee, EmployeeInput, MonthlyBatchInput, MonthlyBatchResult, PayrollDetails, PayrollInput, PayrollRecord, PayrollStatus, StateSnapshot} from '../src/shared/types';
 
 type Row = Record<string, unknown>;
 const now = () => new Date().toISOString();
@@ -48,7 +48,23 @@ export class HoleriteDatabase {
       );
       CREATE INDEX IF NOT EXISTS idx_payroll_company_competence ON payrolls(company_id, competence);
     `);
+    this.migrateEmployeeProfiles();
     this.migrateOldPayrolls();
+  }
+  private migrateEmployeeProfiles() {
+    // Migração aditiva: os cadastros e recibos antigos permanecem intocados.
+    const cols=new Set((this.db.prepare('PRAGMA table_info(employees)').all() as Row[]).map(c=>String(c.name)));
+    const added=[
+      ['registration',"TEXT NOT NULL DEFAULT ''"],
+      ['pis',"TEXT NOT NULL DEFAULT ''"],
+      ['work_hours',"TEXT NOT NULL DEFAULT ''"],
+      ['bank_name',"TEXT NOT NULL DEFAULT ''"],
+      ['bank_branch',"TEXT NOT NULL DEFAULT ''"],
+      ['bank_account',"TEXT NOT NULL DEFAULT ''"],
+      ['pix_key',"TEXT NOT NULL DEFAULT ''"],
+      ['recurring_entries_json',"TEXT NOT NULL DEFAULT '[]'"]
+    ] as const;
+    for(const [name,definition] of added) if(!cols.has(name)) this.db.exec(`ALTER TABLE employees ADD COLUMN ${name} ${definition};`);
   }
   private migrateOldPayrolls() {
     const cols=this.db.prepare('PRAGMA table_info(payrolls)').all() as Row[];
@@ -76,7 +92,7 @@ export class HoleriteDatabase {
     return {id:String(row.id),legalName:String(row.legal_name),tradeName:String(row.trade_name),cnpj:String(row.cnpj),address:String(row.address),createdAt:String(row.created_at)};
   }
   private employeeFrom(row: Row): Employee {
-    return {id:String(row.id),companyId:String(row.company_id),name:String(row.name),cpf:String(row.cpf),role:String(row.role),admissionDate:String(row.admission_date),salaryCents:Number(row.salary_cents),dependents:Number(row.dependents),active:!!row.active,createdAt:String(row.created_at)};
+    return {id:String(row.id),companyId:String(row.company_id),name:String(row.name),cpf:String(row.cpf),role:String(row.role),admissionDate:String(row.admission_date),registration:String(row.registration??''),pis:String(row.pis??''),workHours:String(row.work_hours??''),bankName:String(row.bank_name??''),bankBranch:String(row.bank_branch??''),bankAccount:String(row.bank_account??''),pixKey:String(row.pix_key??''),recurringEntries:parseJSON<Employee['recurringEntries']>(row.recurring_entries_json??'[]'),salaryCents:Number(row.salary_cents),dependents:Number(row.dependents),active:!!row.active,createdAt:String(row.created_at)};
   }
   private payrollFrom(row: Row): PayrollRecord {
     return {id:String(row.id),companyId:String(row.company_id),employeeId:String(row.employee_id),competence:String(row.competence),kind:String(row.kind??'monthly') as PayrollKind,status:String(row.status) as PayrollStatus,paidAt:row.paid_at ? String(row.paid_at):null,details:parseJSON<PayrollDetails>(row.details_json),createdAt:String(row.created_at),updatedAt:String(row.updated_at)};
@@ -135,11 +151,34 @@ export class HoleriteDatabase {
     if (typeof input.active !== 'boolean') throw new Error('Situação do funcionário inválida.');
     const id=input.id ? required(input.id,'ID',50):randomUUID();
     const previous=input.id ? this.getEmployee(id) : null;
+    const registration=optional(input.registration??previous?.registration??'','Matrícula',40);
+    const pis=digits(optional(input.pis??previous?.pis??'','PIS/NIS',20));
+    if(pis && pis.length!==11) throw new Error('PIS/NIS deve conter 11 dígitos.');
+    const workHours=optional(input.workHours??previous?.workHours??'','Jornada',100);
+    const bankName=optional(input.bankName??previous?.bankName??'','Banco',100);
+    const bankBranch=optional(input.bankBranch??previous?.bankBranch??'','Agência',30);
+    const bankAccount=optional(input.bankAccount??previous?.bankAccount??'','Conta',50);
+    const pixKey=optional(input.pixKey??previous?.pixKey??'','Chave Pix',120);
+    const recurringEntries=input.recurringEntries??previous?.recurringEntries??[];
+    if(!Array.isArray(recurringEntries)||recurringEntries.length>100) throw new Error('Rubricas recorrentes inválidas.');
+    calculatePayroll({salaryCents,dependents,competence:'2026-11',taxMode:'manual',entries:recurringEntries});
+    if(cpf && this.db.prepare('SELECT id FROM employees WHERE company_id=? AND cpf=? AND id<>?').get(companyId,cpf,id))
+      throw new Error('CPF já cadastrado nesta empresa.');
+    if(registration && this.db.prepare('SELECT id FROM employees WHERE company_id=? AND registration=? AND id<>?').get(companyId,registration,id))
+      throw new Error('Matrícula já cadastrada nesta empresa.');
     const createdAt=previous?.createdAt ?? now();
-    this.db.prepare(`INSERT INTO employees(id,company_id,name,cpf,role,admission_date,salary_cents,dependents,active,created_at)
-      VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET company_id=excluded.company_id, name=excluded.name, cpf=excluded.cpf,
-      role=excluded.role, admission_date=excluded.admission_date, salary_cents=excluded.salary_cents, dependents=excluded.dependents, active=excluded.active`
-    ).run(id,companyId,name,cpf,role,admissionDate,salaryCents,dependents,input.active ? 1:0,createdAt);
+    this.db.prepare(`INSERT INTO employees(
+      id,company_id,name,cpf,role,admission_date,salary_cents,dependents,active,created_at,
+      registration,pis,work_hours,bank_name,bank_branch,bank_account,pix_key,recurring_entries_json)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(id) DO UPDATE SET company_id=excluded.company_id,name=excluded.name,cpf=excluded.cpf,
+      role=excluded.role,admission_date=excluded.admission_date,salary_cents=excluded.salary_cents,
+      dependents=excluded.dependents,active=excluded.active,registration=excluded.registration,
+      pis=excluded.pis,work_hours=excluded.work_hours,bank_name=excluded.bank_name,
+      bank_branch=excluded.bank_branch,bank_account=excluded.bank_account,pix_key=excluded.pix_key,
+      recurring_entries_json=excluded.recurring_entries_json`
+    ).run(id,companyId,name,cpf,role,admissionDate,salaryCents,dependents,input.active ? 1:0,createdAt,
+      registration,pis,workHours,bankName,bankBranch,bankAccount,pixKey,JSON.stringify(recurringEntries));
     return this.getEmployee(id);
   }
   savePayroll(input: PayrollInput): PayrollRecord {
@@ -169,6 +208,33 @@ export class HoleriteDatabase {
       ON CONFLICT(id) DO UPDATE SET competence=excluded.competence, details_json=excluded.details_json, updated_at=excluded.updated_at`
     ).run(id,company.id,employee.id,input.competence,kind,JSON.stringify(details),original?.createdAt ?? updatedAt,updatedAt);
     return this.getPayroll(id);
+  }
+  generateMonthlyBatch(input:MonthlyBatchInput):MonthlyBatchResult {
+    if(!input || typeof input!=='object') throw new Error('Dados do lote inválidos.');
+    const companyId=required(input.companyId,'Empresa',50);
+    this.getCompany(companyId);
+    const competence=required(input.competence,'Competência',7);
+    if(!/^20\d{2}-(0[1-9]|1[0-2])$/.test(competence)) throw new Error('Competência inválida.');
+    if(input.taxMode!=='manual'&&input.taxMode!=='automatic') throw new Error('Modo tributário inválido.');
+    if(input.taxMode==='automatic'&&!competence.startsWith('2026-'))
+      throw new Error('Cálculo automático disponível apenas para competências de 2026.');
+    const rows=this.db.prepare('SELECT * FROM employees WHERE company_id=? AND active=1 ORDER BY name').all(companyId) as Row[];
+    let created=0,skipped=0;
+    this.db.exec('BEGIN IMMEDIATE;');
+    try {
+      for(const row of rows) {
+        const employee=this.employeeFrom(row);
+        const existing=this.db.prepare("SELECT id FROM payrolls WHERE employee_id=? AND competence=? AND kind='monthly'").get(employee.id,competence);
+        if(existing){skipped++;continue;}
+        this.savePayroll({employeeId:employee.id,competence,kind:'monthly',taxMode:input.taxMode,entries:employee.recurringEntries??[]});
+        created++;
+      }
+      this.db.exec('COMMIT;');
+      return {created,skipped};
+    } catch(error) {
+      this.db.exec('ROLLBACK;');
+      throw error;
+    }
   }
   finalizePayroll(id:string): PayrollRecord {
     const record=this.getPayroll(required(id,'ID',50));

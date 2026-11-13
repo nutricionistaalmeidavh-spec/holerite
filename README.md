@@ -12,6 +12,9 @@ Aplicativo **desktop offline para Windows** para cadastrar empresas e colaborado
 ## Funcionalidades (v0.1.0)
 
 - Cadastro de múltiplas empresas, colaboradores, salários, cargos, CPF, CNPJ e dependentes.
+- Perfil complementar do funcionário: matrícula, PIS/NIS, jornada, banco, agência, conta, Pix e verbas mensais recorrentes.
+- Gerar mês em lote: cria somente rascunhos de funcionários ativos sem holerite naquela competência, preserva os anteriores e desfaz todo o lote caso haja erro. Rubricas recorrentes aplicam-se apenas ao salário mensal.
+- Migração aditiva do SQLite para os novos campos sem descartar cadastros ou recibos antigos.
 - Cinco tipos de documento por colaborador/competência: **salário mensal, férias, 13º (1ª e 2ª parcelas) e rescisão**.
 - Folha mensal por competência e funcionário; salário-base ajustável na competência sem modificar o cadastro.
 - Férias: dias gozados, abono pecuniário, terço constitucional e prazo de pagamento indicativo.
@@ -62,6 +65,7 @@ A identidade `appId` e o nome do aplicativo não devem mudar entre versões. Val
 - Banco no diretório `app.getPath('userData')/holerites.sqlite`.
 - SQLite usa WAL para integridade, chaves estrangeiras e unicidade por colaborador + competência + tipo. A migração do banco anterior preserva holerites existentes.
 - Use **Fazer backup** para gerar uma cópia consistente (.sqlite) em local escolhido.
+- Dados bancários e Pix ficam somente no SQLite local e não são impressos automaticamente no recibo. O arquivo não é criptografado: use uma conta Windows protegida e armazenamento seguro.
 - Os registros não são criptografados em repouso e não há autenticação nesta versão; execute somente em máquinas e contas Windows de acesso controlado. Não compartilhe pastas de dados ou cópias de backup sem proteção apropriada.
 - O projeto não tem sincronização multiusuário em rede; para isso, seria necessária arquitetura cliente-servidor com controle transacional.
 
