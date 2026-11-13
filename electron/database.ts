@@ -159,6 +159,10 @@ export class HoleriteDatabase {
     const details: PayrollDetails = {...calculation,salaryCents,kind,options:input.options,employee:{...employee},company:{...company},competence:input.competence,taxMode:input.taxMode};
     const already=this.db.prepare('SELECT id FROM payrolls WHERE employee_id=? AND competence=? AND kind=?').get(employee.id,input.competence,kind) as Row | undefined;
     if (already && String(already.id)!==id) throw new Error('Já existe um holerite para este funcionário nesta competência.');
+    if(kind==='thirteenth-first'||kind==='thirteenth-second'){
+      const other=this.db.prepare("SELECT id FROM payrolls WHERE employee_id=? AND kind=? AND substr(competence,1,4)=? AND id<>?").get(employee.id,kind,input.competence.slice(0,4),id) as Row|undefined;
+      if(other)throw new Error('Já existe esta parcela do 13º para o funcionário no mesmo ano.');
+    }
     const updatedAt=now();
     this.db.prepare(`INSERT INTO payrolls(id,company_id,employee_id,competence,kind,status,paid_at,details_json,created_at,updated_at)
       VALUES(?,?,?,?,?,'draft',NULL,?,?,?)
