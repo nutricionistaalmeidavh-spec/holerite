@@ -26,7 +26,7 @@ Aplicativo **desktop offline para Windows** para cadastrar empresas e colaborado
 - Dados e cálculos congelados no recibo finalizado (alterar cadastro não altera holerites antigos).
 - PDF A4 em duas vias com assinatura física; impressão por dispositivo local.
 - Histórico, relatório CSV e backup consistente do SQLite com escolha do local.
-- Sem login obrigatório, internet, telemetria ou assinaturas.
+- Sem login obrigatório, telemetria ou assinaturas. O uso da folha continua offline; apenas a checagem opcional de updates precisa de internet.
 
 ## Desenvolvimento
 
@@ -45,7 +45,17 @@ Para criar o instalador do Windows (preferencialmente no Windows):
 npm run dist:win
 ```
 
-O resultado fica em `release/ArtiSys-Holerites-Setup-0.1.0.exe`. O arquivo ficará **sem assinatura de código**: o Windows SmartScreen poderá avisar. Nenhum instalador é publicado automaticamente. O workflow **Quality and Windows setup** também permite gerar um artefato manual via `workflow_dispatch`, sem criar uma release automaticamente.
+O resultado fica em `release/ArtiSys-Holerites-Setup-0.1.0.exe`. O arquivo ficará **sem assinatura de código**: o Windows SmartScreen poderá avisar. O workflow **Quality and Windows setup** também permite gerar um artefato manual via `workflow_dispatch`, sem publicar uma release.
+
+### Atualizações via GitHub Releases
+
+O Windows instalado consulta a release pública mais recente **ao abrir** (e não depende da rede para funcionar). Quando existe uma versão mais nova, solicita autorização para baixar e, depois, para instalar. Escolher "Agora não" ou "Depois" mantém a versão atual, sem instalação automática ao sair. A instalação é feita pelo NSIS, preservando o banco em `app.getPath('userData')/holerites.sqlite` e os cadastros.
+
+O arquivo `latest.yml`, o instalador `.exe` e seu bloco de atualização devem ser produzidos **juntos**, no mesmo build de release. Não publique somente o `.exe`. O mecanismo é oferecido apenas para aplicações Windows **empacotadas com o updater**; versões antigas distribuídas sem esse recurso precisam ser instaladas manualmente uma vez.
+
+**Como publicar:** primeiro integre e valide a alteração na `main`, atualize a propriedade `version` de `package.json` para a próxima versão e crie uma tag `vX.Y.Z` apontando para esse commit da `main` (por exemplo, `v0.2.0`). O workflow `Publish Holerites Windows release` verifica se a tag corresponde ao `package.json`, roda testes, compila e publica a release **não draft** no GitHub com os metadados necessários. Nenhuma publicação ocorre em commits comuns ou PRs. Usa somente `GITHUB_TOKEN` temporário do GitHub Actions, sem tokens embarcados nos instaladores.
+
+A identidade `appId` e o nome do aplicativo não devem mudar entre versões. Valide uma atualização real em Windows antes de disponibilizar uma release a clientes.
 
 ## Dados
 
