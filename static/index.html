@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="pt-BR"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ArtiSys Holerite — gestão de folha</title>
+<link rel="stylesheet" href="/static/style.css">
+<script defer src="/static/app.js"></script>
+</head><body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand"><span class="brand-icon">A</span><div><strong>ArtiSys</strong><small>HOLERITE</small></div></div>
+    <div class="nav-label">ESPAÇO DE TRABALHO</div>
+    <nav id="nav" aria-label="Menu principal">
+      <button data-page="overview" class="active"><span class="nav-ico">▦</span>Visão geral</button>
+      <button data-page="employees"><span class="nav-ico">♙</span>Funcionários</button>
+      <button data-page="payroll"><span class="nav-ico">▤</span>Folha e recibos</button>
+      <button data-page="company"><span class="nav-ico">⚙</span>Minha empresa</button>
+    </nav>
+    <div class="sidebar-foot"><span class="online-dot"></span> Armazenamento local<br><small>Seus dados permanecem neste computador</small></div>
+  </aside>
+  <main class="main">
+    <header class="topbar"><div class="crumb">PAINEL <span>/</span> <span id="crumb-current">VISÃO GERAL</span></div><div class="top-pill">Ambiente local <span class="online-dot"></span></div></header>
+    <div class="main-content">
+      <section id="page-overview" class="page current">
+        <div class="heading"><div><div class="eyebrow">PAINEL ADMINISTRATIVO</div><h1>Visão geral</h1><p>Acompanhe sua equipe e os documentos gerados.</p></div><button class="btn primary" id="overview-new">+ Cadastrar funcionário</button></div>
+        <div class="stats"><article class="stat"><div>Funcionários ativos</div><strong id="kpi-active">—</strong><small>Colaboradores cadastrados</small></article><article class="stat"><div>Folhas da competência</div><strong id="kpi-documents">—</strong><small>Documentos do mês</small></article><article class="stat"><div>Total líquido previsto</div><strong id="kpi-net">—</strong><small>Holerites mensais do mês</small></article></div>
+        <div class="grid-2"><section class="panel"><div class="panel-head"><h2>Comece por aqui</h2></div><div class="steps"><div><span>01</span><div><strong>Configure sua empresa</strong><p>Nome e informações que aparecerão nos recibos.</p></div><button class="link-button" data-go="company">Configurar →</button></div><div><span>02</span><div><strong>Cadastre sua equipe</strong><p>Salário, cargo, CPF e valores recorrentes.</p></div><button class="link-button" data-go="employees">Cadastrar →</button></div><div><span>03</span><div><strong>Gere a competência</strong><p>Emita recibos individuais ou de toda a equipe.</p></div><button class="link-button" data-go="payroll">Gerar →</button></div></div></section><section class="panel accent-panel"><div class="eyebrow">CONTROLE DOCUMENTAL</div><h2>Dados reutilizados.<br>Histórico preservado.</h2><p>Os documentos guardam uma cópia dos dados do funcionário e da empresa no momento da geração. Alterações no cadastro não modificam recibos já emitidos.</p><div class="accent-mark">A</div></section></div>
+      </section>
+      <section id="page-employees" class="page">
+        <div class="heading"><div><div class="eyebrow">GESTÃO DE PESSOAS</div><h1>Funcionários</h1><p>Cadastre sua equipe uma vez e reutilize os dados na folha.</p></div><button class="btn primary" id="new-employee">+ Novo funcionário</button></div>
+        <section class="panel"><div class="panel-head inline"><h2>Equipe cadastrada <span id="employees-count" class="count"></span></h2><input id="employee-search" type="search" placeholder="Buscar por nome, CPF ou cargo" aria-label="Buscar funcionários"></div><div class="table-wrap"><table><thead><tr><th>FUNCIONÁRIO</th><th>CARGO</th><th>SALÁRIO-BASE</th><th>STATUS</th><th></th></tr></thead><tbody id="employees-table"></tbody></table></div><div id="employees-empty" class="empty" hidden>Nenhum funcionário encontrado. Cadastre o primeiro colaborador.</div></section>
+      </section>
+      <section id="page-payroll" class="page">
+        <div class="heading"><div><div class="eyebrow">DOCUMENTOS TRABALHISTAS</div><h1>Folha e recibos</h1><p>Gere, confira e imprima documentos por competência.</p></div></div>
+        <section class="panel pad"><div class="form-row payroll-controls"><label>Competência <input type="month" id="period" required></label><label>Tipo de documento <select id="doc-type"><option value="mensal">Holerite mensal</option><option value="ferias">Férias</option><option value="decimo">13º salário</option><option value="rescisao">Rescisão</option></select></label><label>Funcionário <select id="payroll-employee"><option value="">Selecione</option></select></label><button class="btn primary" id="generate-one">Gerar documento</button><button class="btn secondary" id="generate-batch">Gerar mês em lote</button></div><p class="note">Férias, 13º e rescisão: rubricas informadas manualmente. INSS, IRRF, FGTS e verbas legais <strong>não são calculados automaticamente</strong> nesta versão; revise antes de finalizar.</p></section>
+        <section class="panel"><div class="panel-head"><h2>Documentos da competência <span id="slips-count" class="count"></span></h2></div><div class="table-wrap"><table><thead><tr><th>FUNCIONÁRIO</th><th>TIPO</th><th>COMPETÊNCIA</th><th>STATUS</th><th></th></tr></thead><tbody id="slips-table"></tbody></table></div><div id="slips-empty" class="empty" hidden>Nenhum documento nesta competência.</div></section>
+      </section>
+      <section id="page-company" class="page">
+        <div class="heading"><div><div class="eyebrow">CADASTRO EMPRESARIAL</div><h1>Minha empresa</h1><p>Estas informações aparecerão nos documentos gerados.</p></div></div>
+        <section class="panel pad"><form id="company-form" class="form-grid"><label class="span2">Razão social *<input name="name" maxlength="180" required placeholder="Razão social da empresa"></label><label>CNPJ<input name="cnpj" maxlength="18" placeholder="00.000.000/0000-00"></label><label>Contato<input name="contact" maxlength="180" placeholder="Telefone ou e-mail"></label><label class="span2">Endereço<input name="address" maxlength="300" placeholder="Endereço completo"></label><div class="span2 form-actions"><button class="btn primary" type="submit">Salvar empresa</button></div></form></section>
+      </section>
+    </div>
+  </main>
+</div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<dialog id="employee-dialog" class="modal"><form id="employee-form"><header class="dialog-header"><div><div class="eyebrow">CADASTRO</div><h2 id="employee-dialog-title">Novo funcionário</h2></div><button class="icon-button" type="button" data-close="employee-dialog" aria-label="Fechar">×</button></header><div class="dialog-body"><div class="form-grid">
+<label class="span2">Nome completo *<input name="name" required maxlength="180" autocomplete="off"></label>
+<label>CPF *<input name="cpf" required maxlength="18" inputmode="numeric" placeholder="000.000.000-00"></label>
+<label>PIS/NIS<input name="pis" maxlength="20"></label>
+<label>Cargo *<input name="job_title" required maxlength="180"></label>
+<label>Setor<input name="department" maxlength="180"></label>
+<label>Admissão *<input name="admission_date" required type="date"></label>
+<label>Salário-base (R$) *<input name="salary" inputmode="decimal" required placeholder="2.850,00"></label>
+<label>Matrícula<input name="registration" maxlength="32"></label>
+<label>Tipo de contrato<input name="contract_type" maxlength="80" value="CLT"></label>
+<label>Jornada semanal (h)<input name="weekly_hours" type="number" min="1" max="60" value="44"></label>
+<label>Dependentes<input name="dependents" type="number" min="0" max="30" value="0"></label>
+<label class="span2">Dados bancários (opcional)<input name="bank_details" maxlength="200"></label>
+<label class="checkbox-label span2"><input name="active" type="checkbox" checked> Funcionário ativo</label>
+</div><div class="subsection"><div class="inline"><h3>Rubricas recorrentes</h3><span class="muted">Proventos e descontos mensais</span></div><div id="recurring-list" class="recurring-list"></div><div class="form-row recurring-controls"><input id="recurring-description" placeholder="Ex.: Adicional fixo" aria-label="Descrição da rubrica"><select id="recurring-kind" aria-label="Tipo de rubrica"><option value="provento">Provento</option><option value="desconto">Desconto</option></select><input id="recurring-amount" inputmode="decimal" placeholder="R$ 0,00" aria-label="Valor da rubrica"><button type="button" class="btn secondary" id="add-recurring">Adicionar</button></div><p class="note">Salve o funcionário antes de incluir rubricas recorrentes.</p></div></div><footer class="dialog-footer"><button class="btn secondary" type="button" data-close="employee-dialog">Cancelar</button><button class="btn primary" type="submit">Salvar funcionário</button></footer></form></dialog>
+<dialog id="slip-dialog" class="modal"><header class="dialog-header"><div><div class="eyebrow">DEMONSTRATIVO</div><h2 id="slip-title">Documento</h2></div><button class="icon-button" type="button" data-close="slip-dialog" aria-label="Fechar">×</button></header><div class="dialog-body"><div id="slip-metadata"></div><div class="table-wrap"><table><thead><tr><th>RUBRICA</th><th>TIPO</th><th>VALOR</th><th></th></tr></thead><tbody id="slip-items"></tbody></table></div><div class="slip-totals" id="slip-totals"></div><div id="manual-item-section" class="subsection"><h3>Adicionar rubrica avulsa</h3><div class="form-row recurring-controls"><input id="item-description" placeholder="Descrição" aria-label="Descrição"><select id="item-kind" aria-label="Tipo"><option value="provento">Provento</option><option value="desconto">Desconto</option></select><input id="item-amount" inputmode="decimal" placeholder="R$ 0,00" aria-label="Valor"><button id="add-manual" class="btn secondary">Adicionar</button></div></div><p class="note">Confirme os tributos, descontos e os cálculos trabalhistas antes da finalização.</p></div><footer class="dialog-footer"><button class="btn secondary" data-close="slip-dialog">Fechar</button><button class="btn secondary" id="print-slip">Imprimir / PDF</button><button class="btn primary" id="finalize-slip">Finalizar documento</button></footer></dialog>
+</body></html>
