@@ -1,0 +1,43 @@
+{
+  "name": "artisys-holerites",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ArtiSys Holerites — folha e recibos offline",
+  "main": "dist-electron/main.js",
+  "author": "ArtiSys",
+  "license": "MIT",
+  "scripts": {
+    "dev": "npm run build:electron && concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron .\"",
+    "build:electron": "esbuild electron/main.ts electron/preload.ts --bundle --platform=node --target=node24 --format=cjs --outdir=dist-electron --external:electron",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && npm run build:electron && vite build",
+    "test": "node --import tsx --test src/shared/payroll.test.ts electron/database.test.ts",
+    "dist:win": "npm run build && electron-builder --win nsis"
+  },
+  "dependencies": {
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.0",
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "concurrently": "9.2.1",
+    "electron": "45.3.1",
+    "electron-builder": "26.18.0",
+    "esbuild": "0.25.12",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3",
+    "vite": "7.2.2",
+    "wait-on": "9.0.1"
+  },
+  "build": {
+    "appId": "dev.artisys.holerites",
+    "productName": "ArtiSys Holerites",
+    "asar": true,
+    "directories": {"output": "release"},
+    "files": ["dist/**/*", "dist-electron/**/*", "package.json"],
+    "win": {"target": [{"target": "nsis", "arch": ["x64"]}], "artifactName": "ArtiSys-Holerites-Setup-${version}.${ext}"},
+    "nsis": {"oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true}
+  }
+}
