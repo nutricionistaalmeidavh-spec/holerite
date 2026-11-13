@@ -3,7 +3,7 @@ on:
   push:
     branches: [feat/**]
   pull_request:
-    branches: [main]
+    branches: [main, feat/artisys-folha-electron]
   workflow_dispatch:
 jobs:
   validate:
