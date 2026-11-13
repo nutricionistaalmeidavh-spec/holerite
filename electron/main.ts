@@ -1,4 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { autoUpdater } from 'electron-updater';
+import { registerUpdateFlow } from './updates';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { HoleriteDatabase } from './database';
@@ -74,12 +76,78 @@ async function createMain() {
   if(app.isPackaged) await mainWindow.loadFile(join(__dirname,'../dist/index.html'));
   else await mainWindow.loadURL('http://127.0.0.1:5173');
 }
+
+function checkUpdatesAtStartup() {
+  const check = registerUpdateFlow(
+    {packaged: app.isPackaged, platform: process.platform},
+    {
+      configureManual: () => {
+        autoUpdater.autoDownload = false;
+        autoUpdater.autoInstallOnAppQuit = false;
+        autoUpdater.allowPrerelease = false;
+      },
+      onAvailable: listener => { autoUpdater.on('update-available', listener); },
+      onDownloaded: listener => { autoUpdater.on('update-downloaded', listener); },
+      onError: listener => { autoUpdater.on('error', listener); },
+      check: () => autoUpdater.checkForUpdates(),
+      download: () => autoUpdater.downloadUpdate(),
+      install: () => autoUpdater.quitAndInstall(false, true)
+    },
+    {
+      confirmDownload: async version => {
+        const window = mainWindow;
+        if (!window || window.isDestroyed()) return false;
+        const choice = await dialog.showMessageBox(window, {
+          type: 'info',
+          title: 'Atualização disponível',
+          message: `ArtiSys Holerites ${version} está disponível.`,
+          detail: `Versão instalada: ${app.getVersion()}. Deseja baixar a atualização agora?`,
+          buttons: ['Baixar atualização', 'Agora não'],
+          defaultId: 0,
+          cancelId: 1,
+          noLink: true
+        });
+        return choice.response === 0;
+      },
+      confirmInstall: async version => {
+        const window = mainWindow;
+        if (!window || window.isDestroyed()) return false;
+        const choice = await dialog.showMessageBox(window, {
+          type: 'info',
+          title: 'Atualização pronta',
+          message: `ArtiSys Holerites ${version} foi baixado.`,
+          detail: 'Para instalar, o aplicativo será fechado e reaberto. Seus dados locais serão preservados.',
+          buttons: ['Instalar agora', 'Depois'],
+          defaultId: 0,
+          cancelId: 1,
+          noLink: true
+        });
+        return choice.response === 0;
+      },
+      downloadFailed: async () => {
+        const window = mainWindow;
+        if (!window || window.isDestroyed()) return;
+        await dialog.showMessageBox(window, {
+          type: 'warning',
+          title: 'Atualização não baixada',
+          message: 'Não foi possível baixar a atualização.',
+          detail: 'Confira sua conexão e tente novamente na próxima abertura. O sistema continua funcionando normalmente.',
+          buttons: ['OK'],
+          noLink: true
+        });
+      }
+    }
+  );
+  void check();
+}
+
 app.whenReady().then(async()=>{
   const directory=app.getPath('userData');
   await mkdir(directory,{recursive:true});
   storage=new HoleriteDatabase(join(directory,'holerites.sqlite'));
   bindIPC();
   await createMain();
+  checkUpdatesAtStartup();
   app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0) void createMain();});
 }).catch(err=>{dialog.showErrorBox('Erro ao iniciar ArtiSys Holerites',String(err));app.quit();});
 app.on('window-all-closed',()=>{if(process.platform!=='darwin') app.quit();});
