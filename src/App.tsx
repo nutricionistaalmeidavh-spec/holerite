@@ -1,8 +1,22 @@
 import {useEffect, useMemo, useState} from 'react';
-import type {Company, CompanyInput, Employee, EmployeeInput, PayItem, PayrollRecord, StateSnapshot, TaxMode} from './shared/types';
+import type {Company, CompanyInput, Employee, EmployeeInput, PayItem, PayrollInput, PayrollRecord, StateSnapshot, TaxMode} from './shared/types';
+import {calculateSpecialPayroll} from './shared/special';
+import type {PayrollKind, SpecialOptions, VacationOptions, ThirteenthOptions, TerminationOptions} from './shared/special';
 import {calculatePayroll, money} from './shared/payroll';
 
 type Tab='dashboard'|'payroll'|'employees'|'companies'|'history';
+const payrollKindLabels: Record<PayrollKind,string> = {
+  monthly:'Salário mensal',vacation:'Férias','thirteenth-first':'13º · 1ª parcela',
+  'thirteenth-second':'13º · 2ª parcela',termination:'Rescisão'
+};
+const initialOptions=(kind:PayrollKind,competence:string,employee:Employee,advanceCents:number):SpecialOptions => {
+  if(kind==='vacation')return {vacation:{startDate:competence+'-15',days:30,soldDays:0,acquisitionStart:employee.admissionDate}};
+  if(kind==='thirteenth-first')return {thirteenth:{months:12,advanceCents:0}};
+  if(kind==='thirteenth-second')return {thirteenth:{months:12,advanceCents}};
+  if(kind==='termination')return {termination:{date:competence+'-20',reason:'without-cause',notice:'indemnified',vacationAccrualStart:employee.admissionDate,accruedPeriods:0,overduePeriods:0,fgtsPenaltyBasisCents:0,prior13thAdvanceCents:advanceCents}};
+  return {};
+};
+
 type Modal='company'|'employee'|null;
 type IconName='dashboard'|'payroll'|'employees'|'company'|'history'|'plus'|'download'|'print'|'check'|'edit'|'search'|'close'|'trash'|'backup'|'arrow'|'menu';
 const ICONS:Record<IconName, string> = {
@@ -67,27 +81,76 @@ function EmployeeForm({initial,companies,companyId,onSave,onClose,busy}: {initia
 }
 const blankEntry=():PayItem=>({id:crypto.randomUUID(),code:'100',description:'',kind:'earning',amountCents:0,inssBase:true,irBase:true,fgtsBase:true});
 
-function PayrollEditor({employee,competence,existing,busy,onSave,onFinalize,onPaid,onDelete,onPDF,onPrint}:{
-  employee:Employee; competence:string; existing?:PayrollRecord;busy:boolean;
-  onSave:(x:{id?:string;employeeId:string;competence:string;salaryOverrideCents:number;entries:PayItem[];taxMode:TaxMode})=>void;
+
+function SpecialFields({kind,options,onChange,disabled}:{
+  kind:PayrollKind;options:SpecialOptions;onChange:(v:SpecialOptions)=>void;disabled:boolean
+}) {
+  if(kind==='vacation') {
+    const v=options.vacation!;
+    const update=(patch:Partial<VacationOptions>)=>onChange({vacation:{...v,...patch}});
+    return <section className="special-fields"><h3>Programação das férias</h3><p>Informe o início, o período aquisitivo e quantos dias serão usufruídos ou vendidos.</p>
+      <div className="special-grid">
+        <Field label="Início das férias *"><input disabled={disabled} type="date" value={v.startDate} onChange={e=>update({startDate:e.target.value})}/></Field>
+        <Field label="Início período aquisitivo *"><input disabled={disabled} type="date" value={v.acquisitionStart} onChange={e=>update({acquisitionStart:e.target.value})}/></Field>
+        <Field label="Dias gozados *"><input disabled={disabled} type="number" min="1" max="30" value={v.days} onChange={e=>update({days:Number(e.target.value)})}/></Field>
+        <Field label="Dias vendidos (abono)"><input disabled={disabled} type="number" min="0" max="10" value={v.soldDays} onChange={e=>update({soldDays:Number(e.target.value)})}/></Field>
+      </div><p className="special-hint">Pagamento previsto até dois dias antes do início. Revise períodos aquisitivos, férias fracionadas, início próximo a repousos e médias salariais.</p>
+    </section>;
+  }
+  if(kind==='thirteenth-first'||kind==='thirteenth-second'){
+    const v=options.thirteenth!;
+    const update=(patch:Partial<ThirteenthOptions>)=>onChange({thirteenth:{...v,...patch}});
+    return <section className="special-fields"><h3>{payrollKindLabels[kind]}</h3><p>{kind==='thirteenth-first'?'Adiantamento de metade do 13º proporcional. Sem INSS e IRRF nesta parcela.':'13º integral, menos o adiantamento já pago. INSS e IRRF separados do salário mensal.'}</p>
+      <div className="special-grid">
+        <Field label="Avos de direito (1 a 12) *"><input type="number" min="1" max="12" disabled={disabled} value={v.months} onChange={e=>update({months:Number(e.target.value)})}/></Field>
+        {kind==='thirteenth-second'&&<Field label="Primeira parcela paga anteriormente (R$)" hint="Pré-preenchida se houver recibo de primeira parcela registrado."><input disabled={disabled} type="number" min="0" step="0.01" value={(v.advanceCents/100).toFixed(2)} onChange={e=>update({advanceCents:Math.round(Number(e.target.value)*100)})}/></Field>}
+      </div>
+      <p className="special-hint">Confira os avos e médias de verbas variáveis. A primeira parcela normalmente vence até 30/11; a segunda até 20/12.</p>
+    </section>;
+  }
+  if(kind==='termination') {
+    const v=options.termination!;
+    const update=(patch:Partial<TerminationOptions>)=>onChange({termination:{...v,...patch}});
+    return <section className="special-fields"><h3>Dados da rescisão</h3><p>O cálculo depende do motivo, do aviso-prévio, dos direitos adquiridos e do histórico do FGTS.</p>
+      <div className="special-grid">
+        <Field label="Data do desligamento *"><input type="date" disabled={disabled} value={v.date} onChange={e=>update({date:e.target.value})}/></Field>
+        <Field label="Motivo da rescisão *"><select disabled={disabled} value={v.reason} onChange={e=>update({reason:e.target.value as TerminationOptions['reason']})}><option value="without-cause">Dispensa sem justa causa</option><option value="with-cause">Dispensa por justa causa</option><option value="resignation">Pedido de demissão</option><option value="mutual">Acordo mútuo · art. 484-A</option></select></Field>
+        <Field label="Aviso-prévio *"><select disabled={disabled} value={v.notice} onChange={e=>update({notice:e.target.value as TerminationOptions['notice']})}><option value="indemnified">Indenizado</option><option value="worked">Trabalhado</option><option value="none">Não aplicável / ajuste manual</option></select></Field>
+        <Field label="Início do período aquisitivo atual"><input type="date" disabled={disabled} value={v.vacationAccrualStart} onChange={e=>update({vacationAccrualStart:e.target.value})}/></Field>
+        <Field label="Períodos de férias adquiridos e não gozados"><input type="number" min="0" max="10" disabled={disabled} value={v.accruedPeriods} onChange={e=>update({accruedPeriods:Number(e.target.value)})}/></Field>
+        <Field label="Períodos de férias sujeitos a pagamento em dobro"><input type="number" min="0" max="10" disabled={disabled} value={v.overduePeriods} onChange={e=>update({overduePeriods:Number(e.target.value)})}/></Field>
+        <Field label="Base histórica da multa FGTS (R$)" hint="Depósitos relevantes, a confirmar com extrato FGTS."><input disabled={disabled} type="number" min="0" step="0.01" value={(v.fgtsPenaltyBasisCents/100).toFixed(2)} onChange={e=>update({fgtsPenaltyBasisCents:Math.round(Number(e.target.value)*100)})}/></Field>
+        <Field label="Adiantamento de 13º já pago (R$)"><input disabled={disabled} type="number" min="0" step="0.01" value={(v.prior13thAdvanceCents/100).toFixed(2)} onChange={e=>update({prior13thAdvanceCents:Math.round(Number(e.target.value)*100)})}/></Field>
+      </div>
+      <p className="special-hint">Multa FGTS é informativa e não integra o líquido. Ajustes sindicais, múltiplos vínculos e estabilidade exigem revisão especializada antes da finalização.</p>
+    </section>;
+  }
+  return null;
+}
+
+function PayrollEditor({employee,competence,kind,defaultAdvanceCents,existing,busy,onSave,onFinalize,onPaid,onDelete,onPDF,onPrint}:{
+  employee:Employee; competence:string;kind:PayrollKind;defaultAdvanceCents:number; existing?:PayrollRecord;busy:boolean;
+  onSave:(x:PayrollInput)=>void;
   onFinalize:()=>void;onPaid:()=>void;onDelete:()=>void;onPDF:()=>void;onPrint:()=>void;
 }) {
-  const savedSalary=existing?.details.items.find(i=>i.code==='SAL')?.amountCents??employee.salaryCents;
+  const savedSalary=existing?.details.salaryCents??employee.salaryCents;
   const [salaryText,setSalaryText]=useState(asReais(savedSalary));
   const [taxMode,setTaxMode]=useState<TaxMode>(existing?.details.taxMode??(competence.startsWith('2026-')?'automatic':'manual'));
-  const [entries,setEntries]=useState<PayItem[]>(existing?.details.items.filter(i=>!['SAL','INSS','IRRF'].includes(i.code))??[]);
+  const [entries,setEntries]=useState<PayItem[]>(existing?.details.items.filter(i=>!i.id.startsWith('generated:')&&!['SAL','INSS','IRRF'].includes(i.code))??[]);
+  const [specialOptions,setSpecialOptions]=useState<SpecialOptions>(existing?.details.options??initialOptions(kind,competence,employee,defaultAdvanceCents));
   const locked=!!existing&&existing.status!=='draft';
   const modify=(id:string, patch:Partial<PayItem>)=>setEntries(s=>s.map(x=>x.id===id?{...x,...patch}:x));
-  const calculation=useMemo(()=>{try {return {result:calculatePayroll({salaryCents:toCents(salaryText),competence,dependents:employee.dependents,taxMode,entries}),error:null as string|null};}catch(error){return {result:null,error:(error as Error).message};}},[salaryText,competence,employee.dependents,taxMode,entries]);
+  const calculation=useMemo(()=>{try {const salaryCents=toCents(salaryText);return {result:kind==='monthly'?calculatePayroll({salaryCents,competence,dependents:employee.dependents,taxMode,entries}):calculateSpecialPayroll({salaryCents,competence,admissionDate:employee.admissionDate,dependents:employee.dependents,taxMode,entries,kind,options:specialOptions}),error:null as string|null};}catch(error){return {result:null,error:(error as Error).message};}},[salaryText,competence,employee.admissionDate,employee.dependents,taxMode,entries,kind,specialOptions]);
   const preview=locked?existing.details:calculation.result;
   return <div className="editor">
-    <div className="editor-header"><div><div className="eyebrow">HOLERITE · {brDate(competence)}</div><h2>{employee.name}</h2><p>{employee.role} · {money(employee.salaryCents)} de salário cadastrado</p></div>{existing&&<Status status={existing.status}/>}</div>
+    <div className="editor-header"><div><div className="eyebrow">{payrollKindLabels[kind].toUpperCase()} · {brDate(competence)}</div><h2>{employee.name}</h2><p>{employee.role} · {money(employee.salaryCents)} de salário cadastrado</p></div>{existing&&<Status status={existing.status}/>}</div>
     <div className="edit-settings">
       <Field label="Salário-base desta competência (R$)" hint="Pode ser ajustado sem alterar o cadastro do funcionário."><input type="number" step="0.01" min="0.01" value={salaryText} disabled={locked} onChange={e=>setSalaryText(e.target.value)}/></Field>
       <Field label="Apuração de INSS e IRRF" hint="Automático disponível para competências de 2026."><select disabled={locked} value={taxMode} onChange={e=>setTaxMode(e.target.value as TaxMode)}><option value="automatic" disabled={!competence.startsWith('2026-')}>Automática · tabelas 2026</option><option value="manual">Manual · sem cálculo de impostos</option></select></Field>
     </div>
+    <SpecialFields kind={kind} options={specialOptions} onChange={setSpecialOptions} disabled={locked}/>
     <div className="section-bar"><div><h3>Lançamentos adicionais</h3><p>Horas extras, adicionais, benefícios, faltas e adiantamentos.</p></div><Button icon="plus" variant="secondary" disabled={locked||busy} onClick={()=>setEntries(x=>[...x,blankEntry()])}>Adicionar verba</Button></div>
-    {entries.length===0?<div className="no-entries">Nenhum lançamento adicional. O salário-base será incluído automaticamente.</div>:<div className="entries">
+    {entries.length===0?<div className="no-entries">Nenhum lançamento adicional. As verbas padrão do tipo selecionado serão geradas automaticamente.</div>:<div className="entries">
       {entries.map(item=><div className="entry-row" key={item.id}>
         <div className="entry-grid">
           <Field label="Cód."><input disabled={locked} value={item.code} maxLength={12} onChange={e=>modify(item.id,{code:e.target.value})}/></Field>
@@ -100,14 +163,15 @@ function PayrollEditor({employee,competence,existing,busy,onSave,onFinalize,onPa
       </div>)}
     </div>}
     {calculation.error&&!locked&&<div className="error-inline">{calculation.error}</div>}
-    {preview&&<div className="results">
+    {preview&&<div className="results">{'payableBy' in preview && preview.payableBy && <p className="due-note">Prazo legal previsto para pagamento: <strong>{brDate(preview.payableBy)}</strong></p>}{'fgtsPenaltyCents' in preview && Number(preview.fgtsPenaltyCents)>0 && <p className="due-note">Multa FGTS estimada (não compõe o líquido): <strong>{money(Number(preview.fgtsPenaltyCents))}</strong></p>}
       <div className="results-title"><h3>Conferência da folha</h3><span>{locked?'Valores finalizados':'Prévia de cálculo'}</span></div>
       <div className="tax-cards"><div><span>INSS</span><b>{money(preview.totals.inssCents)}</b></div><div><span>IRRF</span><b>{money(preview.totals.irrfCents)}</b></div><div><span>FGTS patronal</span><b>{money(preview.totals.fgtsCents)}</b><small>Não descontado do salário</small></div></div>
       <div className="results-totals"><div><span>Total de vencimentos</span><strong>{money(preview.totals.grossCents)}</strong></div><div><span>Total de descontos</span><strong>{money(preview.totals.deductionCents)}</strong></div><div className="results-net"><span>Líquido a receber</span><strong>{money(preview.totals.netCents)}</strong></div></div>
     </div>}
+    {preview && 'warnings' in preview && Array.isArray(preview.warnings) && preview.warnings.map((w,i)=><p key={i} className="special-hint">{w}</p>)}
     {taxMode==='manual'&&!locked&&<p className="notice">No modo manual, o sistema não calcula nem insere INSS/IRRF. Cadastre os descontos aplicáveis como lançamentos e confira com o responsável pela folha.</p>}
     <div className="editor-actions">
-      {!locked&&<Button icon="check" disabled={busy||!!calculation.error} onClick={()=>onSave({id:existing?.id,employeeId:employee.id,competence,entries,salaryOverrideCents:toCents(salaryText),taxMode})}>{existing?'Salvar alterações':'Salvar rascunho'}</Button>}
+      {!locked&&<Button icon="check" disabled={busy||!!calculation.error} onClick={()=>onSave({id:existing?.id,employeeId:employee.id,competence,kind,options:kind==='monthly'?undefined:specialOptions,entries,salaryOverrideCents:toCents(salaryText),taxMode})}>{existing?'Salvar alterações':'Salvar rascunho'}</Button>}
       {existing?.status==='draft'&&<Button variant="secondary" icon="check" disabled={busy} onClick={onFinalize}>Finalizar</Button>}
       {existing?.status==='finalized'&&<Button variant="secondary" icon="check" disabled={busy} onClick={onPaid}>Marcar como pago</Button>}
       {existing&&<><Button variant="secondary" icon="download" disabled={busy} onClick={onPDF}>Gerar PDF</Button><Button variant="secondary" icon="print" disabled={busy} onClick={onPrint}>Imprimir</Button></>}
@@ -129,6 +193,7 @@ function App() {
   const [companyId,setCompanyId]=useState('');
   const [competence,setCompetence]=useState(()=>String(new Date().getFullYear())+'-'+String(new Date().getMonth()+1).padStart(2,'0'));
   const [selectedEmployeeId,setSelectedEmployeeId]=useState('');
+  const [payrollKind,setPayrollKind]=useState<PayrollKind>('monthly');
   const [search,setSearch]=useState('');
   const [sidebarOpen,setSidebarOpen]=useState(false);
   const reload=async()=>{const snapshot=await window.holerites.snapshot();setData(snapshot);setCompanyId(id=>snapshot.companies.some(c=>c.id===id)?id:(snapshot.companies[0]?.id??''));};
@@ -139,13 +204,14 @@ function App() {
   const currentPayrolls=payrolls.filter(p=>p.competence===competence);
   const currentNet=currentPayrolls.reduce((n,p)=>n+p.details.totals.netCents,0);
   const selectedEmployee=employees.find(e=>e.id===selectedEmployeeId);
-  const existing=selectedEmployee&&data.payrolls.find(p=>p.employeeId===selectedEmployee.id&&p.competence===competence);
+  const existing=selectedEmployee&&data.payrolls.find(p=>p.employeeId===selectedEmployee.id&&p.competence===competence&&p.kind===payrollKind);
   const filtered=search.trim().toLowerCase();
   const navigate=(to:Tab)=>{setTab(to);setSearch('');setSidebarOpen(false);};
   const companyName=(id:string)=>data.companies.find(c=>c.id===id)?.tradeName||data.companies.find(c=>c.id===id)?.legalName||'—';
   const openCompany=(v?:Company)=>{setEditingCompany(v);setModal('company');};
   const openEmployee=(v?:Employee)=>{setEditingEmployee(v);setModal('employee');};
   const ask=(text:string)=>window.confirm(text);
+  const kindPicker=<select className="month-input" aria-label="Tipo de folha" value={payrollKind} onChange={e=>setPayrollKind(e.target.value as PayrollKind)}>{(Object.keys(payrollKindLabels) as PayrollKind[]).map(k=><option key={k} value={k}>{payrollKindLabels[k]}</option>)}</select>;
   const monthPicker=<input className="month-input" aria-label="Competência" type="month" value={competence} onChange={e=>{setCompetence(e.target.value);setSelectedEmployeeId('');}}/>;
   const companyPicker=<select className="company-picker" aria-label="Empresa atual" value={companyId} onChange={e=>{setCompanyId(e.target.value);setSelectedEmployeeId('');}}>{data.companies.map(c=><option key={c.id} value={c.id}>{c.tradeName||c.legalName}</option>)}</select>;
   const selectEmployee=(id:string)=>{setSelectedEmployeeId(id);setTab('payroll');};
@@ -168,7 +234,7 @@ function App() {
     <div className="main">
       <header className="topbar"><div className="topbar-left"><button className="menu-toggle" onClick={()=>setSidebarOpen(true)} aria-label="Abrir menu"><Icon name="menu"/></button><span className="crumb">Workspace</span><span className="crumb-sep">/</span><strong>{title[tab]}</strong></div><div className="topbar-right">{data.companies.length>0&&companyPicker}<div className="avatar">AS</div></div></header>
       <main className="page">
-        <div className="page-heading"><div><div className="eyebrow">ARTISYS · GESTÃO DE PESSOAS</div><h1>{title[tab]}</h1><p>{tab==='dashboard'?'Acompanhe seus lançamentos e recibos em um só lugar.':tab==='payroll'?'Calcule, confira e emita seus holerites.':tab==='employees'?'Cadastros e remunerações da equipe.':tab==='companies'?'Dados de identificação para seus recibos.':'Consulte, imprima e exporte comprovantes já emitidos.'}</p></div><div className="heading-actions">{(tab==='dashboard'||tab==='payroll')&&monthPicker}{tab==='employees'&&<Button icon="plus" disabled={!data.companies.length} onClick={()=>openEmployee()}>Novo funcionário</Button>}{tab==='companies'&&<Button icon="plus" onClick={()=>openCompany()}>Nova empresa</Button>}{tab==='history'&&<Button variant="secondary" icon="download" onClick={()=>void act(()=>window.holerites.exportCSV(),'Relatório CSV exportado.')}>Exportar CSV</Button>}</div></div>
+        <div className="page-heading"><div><div className="eyebrow">ARTISYS · GESTÃO DE PESSOAS</div><h1>{title[tab]}</h1><p>{tab==='dashboard'?'Acompanhe seus lançamentos e recibos em um só lugar.':tab==='payroll'?'Calcule, confira e emita seus holerites.':tab==='employees'?'Cadastros e remunerações da equipe.':tab==='companies'?'Dados de identificação para seus recibos.':'Consulte, imprima e exporte comprovantes já emitidos.'}</p></div><div className="heading-actions">{tab==='payroll'&&kindPicker}{(tab==='dashboard'||tab==='payroll')&&monthPicker}{tab==='employees'&&<Button icon="plus" disabled={!data.companies.length} onClick={()=>openEmployee()}>Novo funcionário</Button>}{tab==='companies'&&<Button icon="plus" onClick={()=>openCompany()}>Nova empresa</Button>}{tab==='history'&&<Button variant="secondary" icon="download" onClick={()=>void act(()=>window.holerites.exportCSV(),'Relatório CSV exportado.')}>Exportar CSV</Button>}</div></div>
         {error&&<div className="error-banner" role="alert"><span>{error}</span><button aria-label="Fechar erro" onClick={()=>setError('')}><Icon name="close" size={16}/></button></div>}
         {toast&&<div className="success-banner" role="status"><Icon name="check" size={17}/>{toast}<button onClick={()=>setToast('')} aria-label="Fechar aviso"><Icon name="close" size={15}/></button></div>}
         {data.companies.length===0&&tab!=='companies'?<div className="card"><Empty title="Comece cadastrando sua empresa" description="O primeiro passo é informar os dados que aparecerão nos recibos de salário." action={<Button icon="plus" onClick={()=>openCompany()}>Cadastrar empresa</Button>}/></div>:null}
@@ -181,8 +247,8 @@ function App() {
         {tab==='employees'&&<div className="card"><div className="card-heading"><div><h2>Equipe cadastrada</h2><p>{employees.length} funcionário(s) na empresa selecionada.</p></div><div className="search-box"><Icon name="search" size={17}/><input placeholder="Buscar funcionário" aria-label="Buscar funcionário" value={search} onChange={e=>setSearch(e.target.value)}/></div></div>{employees.length?<div className="table-scroll"><table className="data-table"><thead><tr><th>Funcionário</th><th>CPF</th><th>Salário-base</th><th>Admissão</th><th>Situação</th><th></th></tr></thead><tbody>{employees.filter(e=>(e.name+' '+e.role+' '+e.cpf).toLowerCase().includes(filtered)).map(e=><tr key={e.id}><td><strong>{e.name}</strong><small>{e.role}</small></td><td>{e.cpf||'—'}</td><td className="money-cell">{money(e.salaryCents)}</td><td>{brDate(e.admissionDate)}</td><td><span className={'status '+(e.active?'status-paid':'status-draft')}><i/>{e.active?'Ativo':'Inativo'}</span></td><td><button className="small-action" onClick={()=>openEmployee(e)}><Icon name="edit" size={15}/> Editar</button> <button className="small-action" onClick={()=>selectEmployee(e.id)}>Holerite</button></td></tr>)}</tbody></table></div>:<Empty title="Nenhum funcionário" description="Cadastre a equipe antes de preparar a folha." action={<Button icon="plus" onClick={()=>openEmployee()}>Cadastrar funcionário</Button>}/>}</div>}
         {data.companies.length>0&&tab==='payroll'&&<>
           {employees.length===0?<div className="card"><Empty title="Cadastre o primeiro funcionário" description="É necessário ter pelo menos um colaborador para gerar um recibo." action={<Button onClick={()=>openEmployee()} icon="plus">Novo funcionário</Button>}/></div>:<div className="payroll-layout">
-            <section className="card employee-rail"><div className="rail-title"><h2>Colaboradores</h2><small>{brDate(competence)}</small></div><div className="rail-list">{employees.filter(e=>e.active||data.payrolls.some(p=>p.employeeId===e.id&&p.competence===competence)).map(e=>{const record=data.payrolls.find(p=>p.employeeId===e.id&&p.competence===competence);return <button key={e.id} className={'employee-rail-item '+(selectedEmployeeId===e.id?'selected':'')} onClick={()=>setSelectedEmployeeId(e.id)}><span className="person-avatar">{e.name.split(' ').slice(0,2).map(n=>n[0]).join('').toUpperCase()}</span><span className="employee-rail-text"><strong>{e.name}</strong><small>{record?labelStatus[record.status]:'Não gerado'}</small></span><Icon name="arrow" size={16}/></button>;})}</div></section>
-            <section className="card workspace">{selectedEmployee?<PayrollEditor key={`${selectedEmployee.id}-${competence}-${existing?.id??'new'}-${existing?.status??'none'}`} employee={selectedEmployee} competence={competence} existing={existing} busy={busy}
+            <section className="card employee-rail"><div className="rail-title"><h2>Colaboradores</h2><small>{brDate(competence)}</small></div><div className="rail-list">{employees.filter(e=>e.active||data.payrolls.some(p=>p.employeeId===e.id&&p.competence===competence)).map(e=>{const record=data.payrolls.find(p=>p.employeeId===e.id&&p.competence===competence&&p.kind===payrollKind);return <button key={e.id} className={'employee-rail-item '+(selectedEmployeeId===e.id?'selected':'')} onClick={()=>setSelectedEmployeeId(e.id)}><span className="person-avatar">{e.name.split(' ').slice(0,2).map(n=>n[0]).join('').toUpperCase()}</span><span className="employee-rail-text"><strong>{e.name}</strong><small>{record?labelStatus[record.status]:'Não gerado'}</small></span><Icon name="arrow" size={16}/></button>;})}</div></section>
+            <section className="card workspace">{selectedEmployee?<PayrollEditor key={`${selectedEmployee.id}-${competence}-${payrollKind}-${existing?.id??'new'}-${existing?.status??'none'}`} employee={selectedEmployee} competence={competence} kind={payrollKind} defaultAdvanceCents={data.payrolls.filter(p=>p.employeeId===selectedEmployee.id&&p.kind==='thirteenth-first'&&p.competence.startsWith(competence.slice(0,4))).reduce((v,p)=>v+p.details.totals.grossCents,0)} existing={existing} busy={busy}
               onSave={input=>void act(()=>window.holerites.savePayroll(input),'Rascunho salvo.')}
               onFinalize={()=>{if(ask('Finalizar este holerite? Depois disso os valores não poderão ser alterados.'))void act(()=>window.holerites.finalizePayroll(existing!.id),'Holerite finalizado.');}}
               onPaid={()=>{if(ask('Confirmar que o pagamento foi efetivamente realizado?'))void act(()=>window.holerites.markPaid(existing!.id),'Pagamento registrado.');}}
@@ -191,7 +257,7 @@ function App() {
             />:<Empty title="Selecione um colaborador" description="Escolha um funcionário à esquerda para criar ou consultar o holerite da competência selecionada."/>}</section>
           </div>}
         </>}
-        {tab==='history'&&<div className="card"><div className="card-heading"><div><h2>Recibos e pagamentos</h2><p>Holerites finalizados preservam os dados originais da emissão.</p></div><div className="search-box"><Icon name="search" size={17}/><input placeholder="Buscar nome ou mês" aria-label="Buscar holerite" value={search} onChange={e=>setSearch(e.target.value)}/></div></div>{payrolls.length?<div className="table-scroll"><table className="data-table"><thead><tr><th>Funcionário</th><th>Competência</th><th>Bruto</th><th>Descontos</th><th>Líquido</th><th>Status</th><th>Documentos</th></tr></thead><tbody>{payrolls.filter(p=>(p.details.employee.name+' '+p.competence).toLowerCase().includes(filtered)).map(p=><tr key={p.id}><td><strong>{p.details.employee.name}</strong><small>{companyName(p.companyId)}</small></td><td>{brDate(p.competence)}</td><td className="money-cell">{money(p.details.totals.grossCents)}</td><td className="money-cell">{money(p.details.totals.deductionCents)}</td><td className="money-cell"><strong>{money(p.details.totals.netCents)}</strong></td><td><Status status={p.status}/></td><td className="table-actions"><button onClick={()=>void act(()=>window.holerites.exportPDF(p.id))} title="Salvar PDF" aria-label="Salvar PDF"><Icon name="download" size={17}/></button><button onClick={()=>void act(()=>window.holerites.print(p.id))} title="Imprimir" aria-label="Imprimir"><Icon name="print" size={17}/></button><button onClick={()=>{setCompetence(p.competence);selectEmployee(p.employeeId);}} title="Abrir holerite">Abrir</button></td></tr>)}</tbody></table></div>:<Empty title="Histórico vazio" description="Os holerites aparecerão aqui depois do primeiro rascunho."/>}</div>}
+        {tab==='history'&&<div className="card"><div className="card-heading"><div><h2>Recibos e pagamentos</h2><p>Holerites finalizados preservam os dados originais da emissão.</p></div><div className="search-box"><Icon name="search" size={17}/><input placeholder="Buscar nome ou mês" aria-label="Buscar holerite" value={search} onChange={e=>setSearch(e.target.value)}/></div></div>{payrolls.length?<div className="table-scroll"><table className="data-table"><thead><tr><th>Funcionário</th><th>Competência</th><th>Bruto</th><th>Descontos</th><th>Líquido</th><th>Status</th><th>Documentos</th></tr></thead><tbody>{payrolls.filter(p=>(p.details.employee.name+' '+p.competence).toLowerCase().includes(filtered)).map(p=><tr key={p.id}><td><strong>{p.details.employee.name}</strong><small>{companyName(p.companyId)}</small></td><td>{brDate(p.competence)}<small>{payrollKindLabels[p.kind??'monthly']}</small></td><td className="money-cell">{money(p.details.totals.grossCents)}</td><td className="money-cell">{money(p.details.totals.deductionCents)}</td><td className="money-cell"><strong>{money(p.details.totals.netCents)}</strong></td><td><Status status={p.status}/></td><td className="table-actions"><button onClick={()=>void act(()=>window.holerites.exportPDF(p.id))} title="Salvar PDF" aria-label="Salvar PDF"><Icon name="download" size={17}/></button><button onClick={()=>void act(()=>window.holerites.print(p.id))} title="Imprimir" aria-label="Imprimir"><Icon name="print" size={17}/></button><button onClick={()=>{setCompetence(p.competence);setPayrollKind(p.kind??'monthly');selectEmployee(p.employeeId);}} title="Abrir holerite">Abrir</button></td></tr>)}</tbody></table></div>:<Empty title="Histórico vazio" description="Os holerites aparecerão aqui depois do primeiro rascunho."/>}</div>}
         <footer className="page-footer"><span>ArtiSys Holerites · 0.1.0</span><span>100% offline · Sem serviços pagos obrigatórios · Dados sob seu controle</span></footer>
       </main>
     </div>
