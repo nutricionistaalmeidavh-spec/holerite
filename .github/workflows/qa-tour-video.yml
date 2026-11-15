@@ -1,0 +1,54 @@
+name: QA video - Tour completo e impressao
+
+on:
+  push:
+    branches:
+      - 'qa/**'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: holerites-video-qa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  video-tour:
+    name: Gravar tour, folha, PDF e impressao (Electron + Playwright)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: FFmpeg e utilitarios de PDF
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg poppler-utils
+      - name: Dependencias locais open source
+        run: npm install --no-audit --no-fund
+      - name: Regressao - regras da folha e tour
+        run: npm test
+      - name: Validacao de tipos e build
+        run: npm run build
+      - name: Gravar fluxo completo via Electron + Playwright
+        run: xvfb-run -a -s '-screen 0 1600x1000x24' node scripts/qa-video-tour.mjs
+      - name: Validar metadados do PDF exportado e da impressao
+        if: success()
+        run: |
+          pdfinfo qa-artifacts/video-tour/Holerite-QA-exportado.pdf
+          pdfinfo qa-artifacts/video-tour/Holerite-QA-prova-de-impressao.pdf
+          test -s qa-artifacts/video-tour/tour-holerites.mp4
+      - name: Anexar video MP4, WebM, PDFs, capturas e relatorio
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ArtiSys-Holerites-QA-Tour-Video
+          path: qa-artifacts/video-tour/
+          if-no-files-found: warn
+          retention-days: 14
