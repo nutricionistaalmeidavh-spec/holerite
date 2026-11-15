@@ -4,6 +4,7 @@ import {calculateSpecialPayroll,calculateThirteenthMonths} from './shared/specia
 import type {PayrollKind, SpecialOptions, VacationOptions, ThirteenthOptions, TerminationOptions} from './shared/special';
 import {calculatePayroll, money} from './shared/payroll';
 import {PayrollKindTabs,PAYROLL_KIND_LABELS} from './ui/PayrollKindTabs';
+import {OnboardingTour} from './ui/OnboardingTour';
 
 type Tab='dashboard'|'payroll'|'employees'|'companies'|'history';
 const payrollKindLabels=PAYROLL_KIND_LABELS;
@@ -226,6 +227,7 @@ function App() {
   const [search,setSearch]=useState('');
   const [historyKind,setHistoryKind]=useState<'all'|PayrollKind>('all');
   const [sidebarOpen,setSidebarOpen]=useState(false);
+  const [tourStep,setTourStep]=useState<number|null>(null);
   const reload=async()=>{const snapshot=await window.holerites.snapshot();setData(snapshot);setCompanyId(id=>snapshot.companies.some(c=>c.id===id)?id:(snapshot.companies[0]?.id??''));};
   useEffect(()=>{reload().catch(e=>setError(String(e))).finally(()=>setLoading(false));},[]);
   async function act(task:()=>Promise<unknown>,message?:string|((result:unknown)=>string)) {setBusy(true);setError('');setToast('');try{const result=await task();await reload();if(message)setToast(typeof message==='function'?message(result):message);}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setBusy(false);}}
@@ -241,6 +243,13 @@ function App() {
   const companyName=(id:string)=>data.companies.find(c=>c.id===id)?.tradeName||data.companies.find(c=>c.id===id)?.legalName||'—';
   const openCompany=(v?:Company)=>{setEditingCompany(v);setModal('company');};
   const openEmployee=(v?:Employee)=>{setEditingEmployee(v);setModal('employee');};
+  const beginTour=()=>setTourStep(data.companies.length===0?0:data.employees.length===0?1:2);
+  const tourAction=()=>{
+    if(tourStep===0){navigate('companies');openCompany();}
+    if(tourStep===1){navigate('employees');openEmployee();}
+    if(tourStep===2||tourStep===3){navigate('payroll');if(employees.length)setSelectedEmployeeId(employees[0].id);}
+    if(tourStep===4)navigate('history');
+  };
   const ask=(text:string)=>window.confirm(text);
   const monthPicker=<input className="month-input" aria-label="Competência" type="month" value={competence} onChange={e=>{setCompetence(e.target.value);setSelectedEmployeeId('');}}/>;
   const companyPicker=<select className="company-picker" aria-label="Empresa atual" value={companyId} onChange={e=>{setCompanyId(e.target.value);setSelectedEmployeeId('');}}>{data.companies.map(c=><option key={c.id} value={c.id}>{c.tradeName||c.legalName}</option>)}</select>;
@@ -262,12 +271,13 @@ function App() {
     </aside>
     {sidebarOpen&&<button className="sidebar-overlay" onClick={()=>setSidebarOpen(false)} aria-label="Fechar menu"/>}
     <div className="main">
-      <header className="topbar"><div className="topbar-left"><button className="menu-toggle" onClick={()=>setSidebarOpen(true)} aria-label="Abrir menu"><Icon name="menu"/></button><span className="crumb">Workspace</span><span className="crumb-sep">/</span><strong>{title[tab]}</strong></div><div className="topbar-right">{data.companies.length>0&&companyPicker}<div className="avatar" title="ArtiSys Holerites">AS</div></div></header>
+      <header className="topbar"><div className="topbar-left"><button className="menu-toggle" onClick={()=>setSidebarOpen(true)} aria-label="Abrir menu"><Icon name="menu"/></button><span className="crumb">Workspace</span><span className="crumb-sep">/</span><strong>{title[tab]}</strong></div><div className="topbar-right"><button className="tour-start" type="button" onClick={beginTour}>Tour guiado</button>{data.companies.length>0&&companyPicker}<div className="avatar" title="ArtiSys Holerites">AS</div></div></header>
       <main className="page">
+        {tourStep!==null&&<OnboardingTour step={tourStep} onAction={tourAction} onNext={()=>setTourStep(s=>s===null?null:Math.min(s+1,4))} onExit={()=>setTourStep(null)}/>}
         <div className="page-heading"><div><div className="eyebrow">ARTISYS · GESTÃO DE PESSOAS</div><h1>{title[tab]}</h1><p>{tab==='dashboard'?'Acompanhe seus lançamentos e recibos em um só lugar.':tab==='payroll'?'Calcule, confira e emita seus holerites.':tab==='employees'?'Cadastros e remunerações da equipe.':tab==='companies'?'Dados de identificação para seus recibos.':'Consulte, imprima e exporte comprovantes já emitidos.'}</p></div><div className="heading-actions">{(tab==='dashboard'||tab==='payroll')&&monthPicker}{tab==='payroll'&&data.companies.length>0&&<Button variant="secondary" icon="plus" disabled={busy||!employees.some(e=>e.active)} onClick={()=>{if(ask('Gerar rascunhos mensais apenas para funcionários ativos ainda sem holerite nesta competência? Documentos existentes serão preservados.'+(competence.startsWith('2026-')?'':' Os tributos desta competência serão manuais.')))void act(()=>window.holerites.generateMonthlyBatch({companyId,competence,taxMode:competence.startsWith('2026-')?'automatic':'manual'}),result=>{const summary=result as MonthlyBatchResult;return `Lote concluído: ${summary.created} criado(s) e ${summary.skipped} já existente(s).`;});}}>Gerar mês em lote</Button>}{tab==='dashboard'&&data.companies.length>0&&<Button icon="plus" onClick={()=>startKind('monthly')}>Novo documento</Button>}{tab==='employees'&&<Button icon="plus" disabled={!data.companies.length} onClick={()=>openEmployee()}>Novo funcionário</Button>}{tab==='companies'&&<Button icon="plus" onClick={()=>openCompany()}>Nova empresa</Button>}{tab==='history'&&<Button variant="secondary" icon="download" onClick={()=>void act(()=>window.holerites.exportCSV(),'Relatório CSV exportado.')}>Exportar CSV</Button>}</div></div>
         {error&&<div className="error-banner" role="alert"><span>{error}</span><button aria-label="Fechar erro" onClick={()=>setError('')}><Icon name="close" size={16}/></button></div>}
         {toast&&<div className="success-banner" role="status"><Icon name="check" size={17}/>{toast}<button onClick={()=>setToast('')} aria-label="Fechar aviso"><Icon name="close" size={15}/></button></div>}
-        {data.companies.length===0&&tab!=='companies'?<div className="card"><Empty title="Comece cadastrando sua empresa" description="O primeiro passo é informar os dados que aparecerão nos recibos de salário." action={<Button icon="plus" onClick={()=>openCompany()}>Cadastrar empresa</Button>}/></div>:null}
+        {data.companies.length===0&&tab!=='companies'?<div className="card"><Empty title="Comece cadastrando sua empresa" description="O primeiro passo é informar os dados que aparecerão nos recibos de salário." action={<div className="first-actions"><Button icon="plus" onClick={()=>openCompany()}>Cadastrar empresa</Button><Button variant="secondary" onClick={beginTour}>Iniciar tour guiado</Button></div>}/></div>:null}
         {data.companies.length>0&&tab==='dashboard'&&<>
           <section className="overview-hero" aria-label="Emissão de documentos e resumo da competência">
             <div className="hero-copy">
@@ -312,7 +322,7 @@ function App() {
         <footer className="page-footer"><span>ArtiSys Holerites · 0.2.0</span><span>100% offline · Sem serviços pagos obrigatórios · Dados sob seu controle</span></footer>
       </main>
     </div>
-    {modal&&<div className="modal-backdrop" role="presentation" onMouseDown={e=>{if(e.currentTarget===e.target)setModal(null);}}><div className="modal" role="dialog" aria-modal="true" aria-label={modal==='company'?'Cadastro de empresa':'Cadastro de funcionário'}><div className="modal-heading"><div><div className="eyebrow">CADASTRO</div><h2>{modal==='company'?(editingCompany?'Editar empresa':'Nova empresa'):(editingEmployee?'Editar funcionário':'Novo funcionário')}</h2></div><button className="icon-btn" type="button" aria-label="Fechar" onClick={()=>setModal(null)}><Icon name="close"/></button></div>{modal==='company'?<CompanyForm initial={editingCompany} busy={busy} onClose={()=>setModal(null)} onSave={input=>void act(async()=>{const c=await window.holerites.saveCompany(input);setCompanyId(c.id);setModal(null);},'Empresa salva com sucesso.')}/>:<EmployeeForm initial={editingEmployee} companies={data.companies} companyId={companyId} busy={busy} onClose={()=>setModal(null)} onSave={input=>void act(async()=>{await window.holerites.saveEmployee(input);setModal(null);},'Funcionário salvo com sucesso.')}/>}</div></div>}
+    {modal&&<div className="modal-backdrop" role="presentation" onMouseDown={e=>{if(e.currentTarget===e.target)setModal(null);}}><div className="modal" role="dialog" aria-modal="true" aria-label={modal==='company'?'Cadastro de empresa':'Cadastro de funcionário'}><div className="modal-heading"><div><div className="eyebrow">CADASTRO</div><h2>{modal==='company'?(editingCompany?'Editar empresa':'Nova empresa'):(editingEmployee?'Editar funcionário':'Novo funcionário')}</h2></div><button className="icon-btn" type="button" aria-label="Fechar" onClick={()=>setModal(null)}><Icon name="close"/></button></div>{modal==='company'?<CompanyForm initial={editingCompany} busy={busy} onClose={()=>setModal(null)} onSave={input=>void act(async()=>{const c=await window.holerites.saveCompany(input);setCompanyId(c.id);setModal(null);setTourStep(s=>s===0?1:s);},'Empresa salva com sucesso.')}/>:<EmployeeForm initial={editingEmployee} companies={data.companies} companyId={companyId} busy={busy} onClose={()=>setModal(null)} onSave={input=>void act(async()=>{await window.holerites.saveEmployee(input);setModal(null);setTourStep(s=>s===1?2:s);},'Funcionário salvo com sucesso.')}/>}</div></div>}
   </div>;
 }
 export default App;
