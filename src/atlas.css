@@ -320,3 +320,21 @@ button:disabled{cursor:not-allowed;opacity:.58}
 @media(prefers-reduced-motion: reduce){
  *,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;transition-duration:.01ms!important}
 }
+
+
+/* Tour de primeiro acesso: componente não modal, sem interceptar cadastros. */
+.tour-start{font:inherit;font-size:12px;font-weight:750;padding:8px 12px;border:1px solid var(--atlas-border);background:#fff;color:var(--atlas-primary);border-radius:var(--atlas-radius-sm);cursor:pointer}
+.tour-start:hover{background:var(--atlas-surface-muted)}
+.onboarding-tour{margin-bottom:24px;padding:18px 20px 14px;border:1px solid #A8C7D2;border-radius:var(--atlas-radius-lg);background:linear-gradient(110deg,#EFF6FA,#fff);box-shadow:var(--atlas-shadow-sm)}
+.tour-heading,.tour-body,.tour-actions{display:flex;gap:15px;align-items:center;justify-content:space-between}
+.tour-heading{margin-bottom:12px;font-size:10px;font-weight:800;letter-spacing:1px;color:var(--atlas-primary)}
+.tour-heading button{border:none;background:transparent;color:var(--atlas-fg-muted);font-weight:600;cursor:pointer}
+.tour-body{align-items:center;flex-wrap:wrap}
+.tour-body h2{font-size:18px;letter-spacing:-.3px;color:var(--atlas-fg);margin:0 0 4px}
+.tour-body p{font-size:12px;color:var(--atlas-fg-muted);line-height:1.5;max-width:650px;margin:0}
+.tour-actions{justify-content:flex-end;flex-wrap:wrap}
+.tour-progress{display:flex;gap:6px;margin-top:16px}
+.tour-progress span{flex:1;height:4px;border-radius:4px;background:#D7E2EA}
+.tour-progress span.done{background:var(--atlas-accent)}
+.first-actions{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+@media(max-width:760px){.tour-body{align-items:stretch;flex-direction:column}.tour-actions{justify-content:flex-start}.onboarding-tour{padding:14px}.tour-start{padding:7px}}
