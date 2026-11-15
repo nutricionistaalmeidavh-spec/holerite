@@ -142,7 +142,7 @@ try{
   }
   await page.locator('button.kind-option').filter({hasText:'Salário mensal'}).click();
   await page.locator('.editor').waitFor();
-  check('Verba recorrente pré-preenchida',await page.getByText('Adicional demonstrativo').count()>0);
+  check('Verba recorrente pré-preenchida',await page.locator('.editor .entry-grid input').evaluateAll(inputs=>inputs.some(input=>input.value==='Adicional demonstrativo')));
   await page.getByRole('button',{name:'Salvar rascunho'}).click();
   await page.getByRole('button',{name:'Finalizar',exact:true}).waitFor();
   await noError();
