@@ -14,6 +14,7 @@ const issues = [];
 let server;
 let app;
 let page;
+let video;
 let failure = null;
 
 async function waitForPreview() {
@@ -71,10 +72,12 @@ try {
   app = await electron.launch({
     args:['.', '--no-sandbox'],
     cwd:base,
+    recordVideo:{dir:path.join(artifacts,'video'),size:{width:1280,height:800}},
     timeout:60000,
     env:{...process.env, XDG_CONFIG_HOME:path.join(profile, 'config'), ELECTRON_DISABLE_SECURITY_WARNINGS:'true'}
   });
   page = await app.firstWindow();
+  video = page.video();
   page.setDefaultTimeout(20000);
   page.on('pageerror', error => issues.push('JS: ' + error.message));
   page.on('console', message => {
@@ -192,6 +195,9 @@ try {
 } finally {
   if (app) {
     try {await app.close();} catch {}
+  }
+  if (video) {
+    try {await video.saveAs(path.join(artifacts,'qa-fluxo-completo.webm'));} catch(e) {issues.push('Vídeo: '+e);}
   }
   if (server) {
     server.kill('SIGTERM');
