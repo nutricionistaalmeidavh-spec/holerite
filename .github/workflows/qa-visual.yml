@@ -28,8 +28,26 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Cache do binario Electron
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/electron
+          key: holerites-electron-linux-v45
       - name: Instalar dependencias open source
         run: npm install --no-audit --no-fund
+      - name: Instalar Electron com timeout e retry
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            echo "Tentativa ${attempt}/3"
+            if timeout --signal=TERM --kill-after=5s 90s node node_modules/electron/install.js; then
+              node -e "const fs=require('fs');const p=require('electron');if (!fs.existsSync(p))process.exit(1);console.log('Electron pronto: '+p)"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "::error::Electron indisponivel apos tres tentativas"
+          exit 1
       - name: Testar regras e persistencia
         run: npm test
       - name: Typecheck e build completo
