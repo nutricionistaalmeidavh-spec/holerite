@@ -14,8 +14,27 @@ const issues = [];
 let server;
 let app;
 let page;
-let video;
+let recording;
 let failure = null;
+const recordingPath=path.join(artifacts,'qa-fluxo-completo.mp4');
+function startRecorder(){
+  recording=spawn('ffmpeg',['-y','-hide_banner','-loglevel','error','-f','x11grab','-framerate','12','-video_size','1600x1000','-draw_mouse','1','-i',process.env.DISPLAY||':99','-c:v','libx264','-preset','ultrafast','-crf','25','-pix_fmt','yuv420p','-movflags','+faststart',recordingPath],{stdio:['pipe','ignore','pipe']});
+  recording.stderr.on('data',d=>console.error('[ffmpeg]',String(d)));
+}
+async function stopRecorder(){
+  if(!recording)return;
+  const proc=recording;
+  await new Promise(resolve=>{
+    if(proc.exitCode!==null||proc.signalCode!==null){resolve();return;}
+    let done=false;
+    const finish=()=>{if(!done){done=true;resolve();}};
+    proc.once('exit',finish);
+    proc.stdin.write('q\n');
+    setTimeout(()=>{if(!done)proc.kill('SIGINT');},4000).unref();
+    setTimeout(()=>{if(!done){proc.kill('SIGKILL');finish();}},7000).unref();
+  });
+  try {assert.ok((await stat(recordingPath)).size>10000,'Gravação MP4 vazia');} catch(e){issues.push(String(e));}
+}
 
 async function waitForPreview() {
   for (let attempt = 0; attempt < 100; attempt++) {
@@ -72,12 +91,10 @@ try {
   app = await electron.launch({
     args:['.', '--no-sandbox'],
     cwd:base,
-    recordVideo:{dir:path.join(artifacts,'video'),size:{width:1280,height:800}},
     timeout:60000,
     env:{...process.env, XDG_CONFIG_HOME:path.join(profile, 'config'), ELECTRON_DISABLE_SECURITY_WARNINGS:'true'}
   });
   page = await app.firstWindow();
-  video = page.video();
   page.setDefaultTimeout(20000);
   page.on('pageerror', error => issues.push('JS: ' + error.message));
   page.on('console', message => {
@@ -85,6 +102,7 @@ try {
   });
   page.on('dialog', dialog => dialog.accept());
   await page.setViewportSize({width:1440,height:960});
+  startRecorder();
   await page.getByText('Comece cadastrando sua empresa').waitFor();
 
   await screenshot('01-primeiro-acesso', 'Visão geral: primeiro acesso sem empresa');
@@ -193,11 +211,9 @@ try {
     catch {}
   }
 } finally {
+  await stopRecorder();
   if (app) {
     try {await app.close();} catch {}
-  }
-  if (video) {
-    try {await video.saveAs(path.join(artifacts,'qa-fluxo-completo.webm'));} catch(e) {issues.push('Vídeo: '+e);}
   }
   if (server) {
     server.kill('SIGTERM');
