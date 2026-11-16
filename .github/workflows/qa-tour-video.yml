@@ -30,8 +30,26 @@ jobs:
           node-version: '24'
       - name: FFmpeg e utilitarios de PDF
         run: sudo apt-get update && sudo apt-get install -y ffmpeg poppler-utils
+      - name: Cache do binario Electron
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/electron
+          key: holerites-electron-linux-v45
       - name: Dependencias locais open source
         run: npm install --no-audit --no-fund
+      - name: Instalar e validar Electron com prazo limitado
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            echo "Tentativa ${attempt}/3 de instalar o Electron"
+            if timeout --signal=TERM --kill-after=5s 90s node node_modules/electron/install.js; then
+              node -e "const fs=require('fs');const p=require('electron');if (!fs.existsSync(p)) process.exit(1);console.log('Electron pronto: '+p)"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "::error::Electron nao baixado em 3 tentativas de 90s. Confira rede/GitHub Releases."
+          exit 1
       - name: Regressao - regras da folha e tour
         run: npm test
       - name: Validacao de tipos e build
