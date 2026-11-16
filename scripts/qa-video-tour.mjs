@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {spawn, spawnSync} from 'node:child_process';
+import {spawn} from 'node:child_process';
 import {copyFile, mkdir, mkdtemp, readFile, stat, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
@@ -11,7 +11,28 @@ const out=path.join(root,'qa-artifacts','video-tour');
 const shots=path.join(out,'screenshots');
 const videoDir=path.join(out,'raw-video');
 const report={status:'failed',startedAt:new Date().toISOString(),scenario:'Tour de primeiro acesso, cadastro, geração e impressão de holerites',steps:[],checks:[],warnings:[],artifacts:[],failure:null};
-let server, app, page, video, failure=null;
+let server, app, page, recording, failure=null;
+const recordingPath=path.join(out,'tour-holerites.mp4');
+function startRecorder(){
+  recording=spawn('ffmpeg',['-y','-hide_banner','-loglevel','error','-thread_queue_size','512','-f','x11grab','-framerate','12','-video_size','1600x1000','-draw_mouse','1','-i',process.env.DISPLAY||':99','-c:v','libx264','-preset','ultrafast','-crf','24','-pix_fmt','yuv420p','-movflags','+faststart',recordingPath],{stdio:['pipe','ignore','pipe']});
+  recording.stderr.on('data',d=>console.error('[ffmpeg]',String(d)));
+  recording.on('error',e=>report.warnings.push('Erro do FFmpeg: '+e.message));
+}
+async function stopRecorder(){
+  if(!recording)return;
+  const proc=recording;
+  await new Promise(resolve=>{
+    if(proc.exitCode!==null||proc.signalCode!==null){resolve();return;}
+    let done=false;
+    const finish=()=>{if(!done){done=true;resolve();}};
+    proc.once('exit',finish);
+    proc.stdin.write('q\n');
+    setTimeout(()=>{if(!done)proc.kill('SIGINT');},4000).unref();
+    setTimeout(()=>{if(!done){proc.kill('SIGKILL');finish();}},7000).unref();
+  });
+  try{if((await stat(recordingPath)).size>10000){report.artifacts.push('tour-holerites.mp4');return;}}catch{}
+  report.warnings.push('A gravação MP4 ficou indisponível.');
+}
 const record=(label)=>{report.steps.push({label,at:new Date().toISOString()});console.log('[QA TOUR]',label)};
 const check=(name,passed=true)=>{assert.ok(passed,name);report.checks.push(name)};
 const field=(scope,label)=>scope.locator('label.field').filter({hasText:label}).first().locator('input').first();
@@ -58,13 +79,12 @@ try{
   await waitPreview();
   app=await electron.launch({
     args:['.','--no-sandbox'],cwd:root,timeout:60000,
-    recordVideo:{dir:videoDir,size:{width:1280,height:800},fps:20},
     env:{...process.env,XDG_CONFIG_HOME:path.join(profile,'config'),ELECTRON_DISABLE_SECURITY_WARNINGS:'true'}
   });
   page=await app.firstWindow();
-  video=page.video();
   page.setDefaultTimeout(25000);
   await page.setViewportSize({width:1280,height:800});
+  startRecorder();
   page.on('pageerror',err=>report.warnings.push('JS: '+err.message));
   page.on('console',message=>{if(message.type()==='error')report.warnings.push('Console: '+message.text())});
   page.on('dialog',dialog=>dialog.accept());
@@ -217,17 +237,8 @@ try{
   console.error('QA TOUR VIDEO FALHOU:',e);
   if(page){try{await page.screenshot({path:path.join(out,'falha.png'),fullPage:true});report.artifacts.push('falha.png')}catch{}}
 }finally{
+  await stopRecorder();
   try{if(app)await app.close()}catch(e){report.warnings.push('Fechamento Electron: '+e)}
-  if(video){
-    try{
-      const rawPath=path.join(out,'tour-holerites.webm');
-      await video.saveAs(rawPath);
-      report.artifacts.push('tour-holerites.webm');
-      const ffmpeg=spawnSync('ffmpeg',['-y','-loglevel','error','-i',rawPath,'-c:v','libx264','-preset','veryfast','-pix_fmt','yuv420p','-crf','24','-movflags','+faststart',path.join(out,'tour-holerites.mp4')],{timeout:120000,encoding:'utf8'});
-      if(ffmpeg.status===0 && (await stat(path.join(out,'tour-holerites.mp4'))).size>10000){report.artifacts.push('tour-holerites.mp4');}
-      else report.warnings.push('Conversão MP4 indisponível: '+(ffmpeg.stderr??ffmpeg.error??'falha ffmpeg'));
-    }catch(e){report.warnings.push('Vídeo: '+e)}
-  }
   if(server){server.kill('SIGTERM');await delay(350)}
   report.completedAt=new Date().toISOString();
   await writeFile(path.join(out,'report.json'),JSON.stringify(report,null,2));
