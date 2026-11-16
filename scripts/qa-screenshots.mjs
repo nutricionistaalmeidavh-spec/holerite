@@ -14,7 +14,27 @@ const issues = [];
 let server;
 let app;
 let page;
+let recording;
 let failure = null;
+const recordingPath=path.join(artifacts,'qa-fluxo-completo.mp4');
+function startRecorder(){
+  recording=spawn('ffmpeg',['-y','-hide_banner','-loglevel','error','-f','x11grab','-framerate','12','-video_size','1600x1000','-draw_mouse','1','-i',process.env.DISPLAY||':99','-c:v','libx264','-preset','ultrafast','-crf','25','-pix_fmt','yuv420p','-movflags','+faststart',recordingPath],{stdio:['pipe','ignore','pipe']});
+  recording.stderr.on('data',d=>console.error('[ffmpeg]',String(d)));
+}
+async function stopRecorder(){
+  if(!recording)return;
+  const proc=recording;
+  await new Promise(resolve=>{
+    if(proc.exitCode!==null||proc.signalCode!==null){resolve();return;}
+    let done=false;
+    const finish=()=>{if(!done){done=true;resolve();}};
+    proc.once('exit',finish);
+    proc.stdin.write('q\n');
+    setTimeout(()=>{if(!done)proc.kill('SIGINT');},4000).unref();
+    setTimeout(()=>{if(!done){proc.kill('SIGKILL');finish();}},7000).unref();
+  });
+  try {assert.ok((await stat(recordingPath)).size>10000,'Gravação MP4 vazia');} catch(e){issues.push(String(e));}
+}
 
 async function waitForPreview() {
   for (let attempt = 0; attempt < 100; attempt++) {
@@ -82,6 +102,7 @@ try {
   });
   page.on('dialog', dialog => dialog.accept());
   await page.setViewportSize({width:1440,height:960});
+  startRecorder();
   await page.getByText('Comece cadastrando sua empresa').waitFor();
 
   await screenshot('01-primeiro-acesso', 'Visão geral: primeiro acesso sem empresa');
@@ -190,6 +211,7 @@ try {
     catch {}
   }
 } finally {
+  await stopRecorder();
   if (app) {
     try {await app.close();} catch {}
   }
