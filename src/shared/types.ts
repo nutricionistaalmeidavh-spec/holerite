@@ -170,7 +170,7 @@ export interface HoleriteAPI {
   setTimeSchedule(input:{employeeId:string;schedule:WorkSchedule}):Promise<WorkSchedule>;
   getTimeSheet(input:{employeeId:string;competence:string}):Promise<TimeSheet>;
   getTimeMatrix(input:{companyId:string;competence:string}):Promise<Array<TimeSheet&{employeeName:string}>>;
-  getTimeAudit(input:{employeeId:string;competence:string}):Promise<Array<{date:string|null;action:string;reason:string;created_at:string}>>;
+  getTimeAudit(input:{employeeId:string;competence:string}):Promise<Array<{date:string|null;action:string;reason:string;created_at:string;actor_name?:string}>>;
   autofillTimeSheet(input:{employeeId:string;competence:string}):Promise<TimeSheet>;
   reviewTimeSuggestions(input:{employeeIds:string[];competence:string}):Promise<{reviewed:number;employees:number}>;
   saveTimeMatrix(input:{changes:MatrixChange[];overwriteImported?:boolean}):Promise<number>;
