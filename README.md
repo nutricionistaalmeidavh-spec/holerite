@@ -13,10 +13,10 @@ Aplicativo **desktop offline para Windows** com foco em **controle de ponto**: c
 
 - Cadastro de múltiplas empresas, colaboradores, salários, cargos, CPF, CNPJ e dependentes.
 - Perfil complementar do funcionário: matrícula, PIS/NIS, jornada, banco, agência, conta, Pix e verbas mensais recorrentes.
-- Gerar mês em lote: cria holerites apenas para funcionários ativos com ficha de ponto fechada na competência, preserva os anteriores e desfaz todo o lote caso haja erro. Rubricas recorrentes aplicam-se apenas ao salário mensal.
+- Gerar mês em lote: cria holerites para funcionários ativos, com ou sem fechamento prévio do ponto, preserva documentos existentes e desfaz o lote caso haja erro. Rubricas recorrentes aplicam-se apenas ao salário mensal.
 - Migração aditiva do SQLite para os novos campos sem descartar cadastros ou recibos antigos.
 - Cinco tipos de documento por colaborador/competência: **salário mensal, férias, 13º (1ª e 2ª parcelas) e rescisão**.
-- Holerite mensal é a etapa final: novos documentos requerem ficha de ponto fechada. A edição de rascunhos históricos anteriores à mudança continua disponível. Salário-base ajustável sem modificar o cadastro.
+- Holerite mensal é a etapa final recomendada do fluxo, mas sem bloqueio obrigatório de conferência ou fechamento do ponto. Salário-base ajustável sem modificar o cadastro.
 - Férias: dias gozados, abono pecuniário, terço constitucional e prazo de pagamento indicativo.
 - 13º: avos, adiantamento e separação das incidências entre parcelas.
 - Rescisão: motivo, aviso proporcional, saldo salarial, férias vencidas/proporcionais, 13º proporcional e estimativa de multa FGTS (fora do líquido).
@@ -34,9 +34,9 @@ Aplicativo **desktop offline para Windows** com foco em **controle de ponto**: c
 ## Controle de ponto — núcleo do sistema (P0/P1/P2)
 
 - Funcionalidade principal, disponível automaticamente a todas as empresas, inclusive bases antigas. Não existe ativação opcional.
-- Ficha manual, prévia semiautomática (com variação opcional, **sempre sinalizada como sugestão**), quatro marcações diárias, ocorrências e histórico auditável.
+- Ficha manual, geração semiautomática com variação opcional, **conferência do mês/equipe em lote**, quatro horários diários, ocorrências e histórico auditável. O sistema distingue sugestões de horários gerados conferidos.
 - Matriz da equipe, colagem do Excel, importação CSV/XLSX com mapeamento e validação, exportação de planilhas e ficha PDF.
-- Apuração de jornada, horas extras, atraso, ausências, adicional noturno e banco de horas; fechamento e integração somente ao holerite mensal em rascunho, sem duplicar rubricas.
+- Apuração de jornada, horas extras, atraso, ausências, adicional noturno e banco de horas. Fechamento é opcional, e as rubricas podem ser integradas ao holerite mensal ainda em rascunho, sem duplicação.
 - Funciona totalmente offline com SQLite local; usa [ExcelJS](https://github.com/exceljs/exceljs) (MIT) para planilhas.
 - **Não é REP homologado, não emite AFD/AEJ e não equivale a marcação eletrônica oficial.** Regras salariais e convencionais requerem conferência profissional.
 
