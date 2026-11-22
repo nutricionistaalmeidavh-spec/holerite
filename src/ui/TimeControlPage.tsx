@@ -40,6 +40,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
   const [preview,setPreview]=useState<ImportPreview|null>(null);
   const [allowReplace,setAllowReplace]=useState(false);
   const [audit,setAudit]=useState<Array<{date:string|null;action:string;reason:string;created_at:string}>>([]);
+  const [bankBalance,setBankBalance]=useState(0);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
   const [notice,setNotice]=useState('');
@@ -59,11 +60,12 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
   },[companyId]);
   const loadSheet=useCallback(async()=>{
     if(!employeeId||!enabled)return;
-    const [result,personSchedule,history]=await Promise.all([
+    const [result,personSchedule,history,balance]=await Promise.all([
       window.holerites.getTimeSheet({employeeId,competence}),window.holerites.getTimeSchedule(employeeId),
-      window.holerites.getTimeAudit({employeeId,competence})
+      window.holerites.getTimeAudit({employeeId,competence}),
+      window.holerites.getTimeBankBalance({employeeId,competence})
     ]);
-    setSheet(result);setDays(result.days);setSchedule(personSchedule);setAudit(history);
+    setSheet(result);setDays(result.days);setSchedule(personSchedule);setAudit(history);setBankBalance(balance);
   },[employeeId,competence,enabled]);
   const loadMatrix=useCallback(async()=>{
     if(!enabled||!companyId)return;
@@ -183,7 +185,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
         </select></label><span>Competência: <strong>{competence}</strong></span></div>
         {!employeeId?<p>Selecione um funcionário para cadastrar, importar, revisar e fechar sua ficha.</p>:sheet&&<>
           <div className="time-status"><span>{selected?.name} · {sheet.status==='closed'?'Fechada':'Rascunho'}</span>
-            <small>Trabalhadas {duration(sheet.summary.workedMinutes)} | Extras {duration(sheet.summary.overtimeMinutes)} | Déficit {duration(sheet.summary.deficitMinutes)} | Noturnas {duration(sheet.summary.nightMinutes)}</small></div>
+            <small>Trabalhadas {duration(sheet.summary.workedMinutes)} | Extras {duration(sheet.summary.overtimeMinutes)} | Déficit {duration(sheet.summary.deficitMinutes)} | Noturnas {duration(sheet.summary.nightMinutes)} | Saldo banco {bankBalance<0?'-':'+'}{duration(bankBalance)}</small></div>
           <div className="time-mini-config"><strong>Jornada deste funcionário</strong>
             {fields.map(field=><label key={field}>{timeLabel[field]}<input type="time" value={schedule[field]} disabled={sheet.status==='closed'} onChange={e=>setScheduleField(field,e.target.value)}/></label>)}
             <button className="btn btn-secondary" disabled={busy||sheet.status==='closed'} onClick={()=>void run(saveSchedule)}>Salvar jornada</button></div>
@@ -224,6 +226,8 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
             await loadMatrix();setNotice('Calendários sugeridos, sem substituir dados reais.');
           })}>Criar calendários da equipe</button>
           <button className="btn btn-primary" disabled={busy||!Object.keys(matrixDrafts).length} onClick={()=>void run(saveMatrix)}>Salvar {Object.keys(matrixDrafts).length} dia(s)</button>
+          <button className="btn btn-secondary" disabled={busy} onClick={()=>void run(async()=>{await window.holerites.exportTimeMatrix({companyId,competence,format:'xlsx'});})}>Exportar Excel</button>
+          <button className="btn btn-secondary" disabled={busy} onClick={()=>void run(async()=>{await window.holerites.exportTimeMatrix({companyId,competence,format:'csv'});})}>Exportar CSV</button>
         </div>
         <p>Uma linha por funcionário/dia. Cole várias células do Excel nos campos de horário; linhas já fechadas ficam protegidas.</p>
         <input placeholder="Filtrar por nome ou data" aria-label="Buscar na matriz" value={filter} onChange={e=>{setFilter(e.target.value);setPage(0);}}/>
@@ -251,6 +255,9 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
       {view==='import'&&<section className="card time-sheet">
         <h2>Importar ficha de ponto CSV / Excel</h2>
         <p>Identifique os funcionários por CPF, matrícula ou nome. Revise o mapeamento antes da gravação. Limite de 500 linhas e 10 MB por arquivo.</p>
+        <button className="btn btn-secondary" disabled={busy} onClick={()=>void run(async()=>{
+          await window.holerites.exportTimeMatrix({companyId,competence,format:'template'});
+        })}>Baixar modelo XLSX</button>
         <button className="btn btn-primary" disabled={busy} onClick={()=>void run(async()=>{
           const choice=await window.holerites.chooseTimeFile(companyId);
           setImportChoice(choice);setMapping(choice?.suggestedMapping??{});setPreview(null);
@@ -264,7 +271,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
           </label>)}</div>
           <div className="time-actions">
             <button className="btn btn-secondary" disabled={busy} onClick={()=>void run(async()=>setPreview(await window.holerites.previewTimeFile({token:importChoice.token,mapping})))}>Conferir prévia</button>
-            <label><input type="checkbox" checked={allowReplace} onChange={e=>setAllowReplace(e.target.checked)}/> Substituir importações anteriores nas mesmas datas</label>
+            <label><input type="checkbox" checked={allowReplace} onChange={e=>setAllowReplace(e.target.checked)}/> Substituir marcações reais existentes nas mesmas datas</label>
             <button className="btn btn-primary" disabled={busy||!preview||preview.errors.length>0||preview.accepted===0}
               onClick={()=>void run(async()=>{
                 const result=await window.holerites.commitTimeFile({token:importChoice.token,mapping,allowReplace});
