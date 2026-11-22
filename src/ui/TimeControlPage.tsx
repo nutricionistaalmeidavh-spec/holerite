@@ -150,7 +150,11 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
       <div><h2>Controle de ponto <small>módulo opcional</small></h2>
         <p>O Holerite continua funcionando normalmente com este módulo desativado.</p></div>
       <label className="time-module-toggle"><input type="checkbox" checked={enabled} disabled={busy||!config}
-        onChange={e=>{if(config)void run(()=>configure({...config,enabled:e.target.checked}));}}/> Ativar para esta empresa</label>
+        onChange={e=>{if(config){
+          const previous=config,next={...config,enabled:e.target.checked};
+          setConfig(next);
+          void run(async()=>{try{await configure(next);}catch(error){setConfig(previous);throw error;}});
+        }}}/> Ativar para esta empresa</label>
     </section>
     {error&&<div className="error-banner" role="alert">{error}<button aria-label="Fechar erro" onClick={()=>setError('')}>×</button></div>}
     {notice&&<div className="success-banner" role="status">{notice}</div>}
