@@ -2,6 +2,12 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type {HoleriteAPI} from '../src/shared/types';
 const call = <T>(method: string, input?: unknown): Promise<T> => ipcRenderer.invoke('holerites:' + method, input);
 const api: HoleriteAPI = {
+  getAuthState: () => call('auth-state'),
+  setupLocalAccess: input => call('auth-setup',input),
+  loginLocal: input => call('auth-login',input),
+  logoutLocal: () => call('auth-logout'),
+  getLocalOperators: () => call('auth-users'),
+  addLocalOperator: input => call('auth-add-user',input),
   snapshot: () => call('snapshot'),
   saveCompany: input => call('save-company', input),
   saveEmployee: input => call('save-employee', input),
