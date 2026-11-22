@@ -9,11 +9,27 @@ const setup=()=>{
   const employee=db.saveEmployee({companyId:company.id,name:'Ana',cpf:'12345678909',role:'Operadora',admissionDate:'2026-01-01',salaryCents:300000,dependents:0,active:true});
   return {db,company,employee};
 };
-test('optional module stays disabled until explicitly enabled, never touches payroll',()=>{
+test('controle de ponto is enabled as core for every company, including a newly registered company',()=>{
   const {db,company,employee}=setup();
-  assert.equal(db.attendance.getConfig(company.id).enabled,false);
-  assert.throws(()=>db.attendance.getSheet(employee.id,'2026-11'),/Ative o módulo/);
+  assert.equal(db.attendance.getConfig(company.id).enabled,true);
+  const sheet=db.attendance.getSheet(employee.id,'2026-11');
+  assert.equal(sheet.status,'draft');
+  assert.equal(sheet.days.length,0);
+  assert.throws(()=>db.attendance.setConfig(company.id,{enabled:false,variationMinutes:0,schedule:defaultSchedule()}),/principal|obrigatóri|desativar/i);
   assert.equal(db.snapshot().payrolls.length,0);
+  db.close();
+});
+
+test('monthly holerite is only started after checking and closing the point sheet',()=>{
+  const {db,employee}=setup();
+  assert.throws(()=>db.savePayroll({employeeId:employee.id,competence:'2026-11',entries:[],taxMode:'automatic'}),/ponto|fechad/i);
+  assert.throws(()=>db.generateMonthlyBatch({companyId:employee.companyId,competence:'2026-11',taxMode:'automatic'}),/ponto|fechad/i);
+  const days=previewMonth('2026-11',defaultSchedule(),0).map(day=>day.kind==='work'?{...day,source:'manual' as const}:day);
+  db.attendance.saveMatrix(days.map(day=>({employeeId:employee.id,competence:'2026-11',day})));
+  db.attendance.close(employee.id,'2026-11');
+  const record=db.applyTimeToPayroll(employee.id,'2026-11');
+  assert.equal(record.kind,'monthly');
+  assert.equal(record.employeeId,employee.id);
   db.close();
 });
 test('monthly timesheet persists manual marks, preserves edits when regenerating suggestions and closes',()=>{
