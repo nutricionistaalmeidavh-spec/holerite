@@ -136,7 +136,7 @@ try {
   await generationDialog.getByRole('button',{name:'Gerar e incluir na apuração'}).click();
   await page.locator('.time-source.reviewed').first().waitFor();
   assert.equal(await page.locator('.time-source.suggested').count(),0);
-  assert.match(await page.locator('.time-status small').textContent()||'',/Trabalhadas (?!00:00)\\d+:\\d{2}/);
+  assert.match(await page.locator('.time-status small').textContent()||'',/Trabalhadas (?!00:00)\d+:\d{2}/);
   assert.equal(await page.getByRole('button',{name:'Conferir',exact:true}).count(),0);
   await page.getByRole('button',{name:'Gerar holerite do ponto'}).click();
   await page.locator('.editor').waitFor({state:'visible'});
