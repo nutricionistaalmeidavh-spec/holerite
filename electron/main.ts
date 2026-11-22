@@ -1,8 +1,8 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import { registerUpdateFlow } from './updates';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { join, basename, extname } from 'node:path';
 import { HoleriteDatabase } from './database';
 import { receiptHTML } from './receipt';
 import {pointReceiptHTML,pointReceiptBatchHTML} from './point-receipt';
@@ -145,6 +145,25 @@ function bindIPC() {
   bind('time-export-pdf',(v:any)=>printTime(v.employeeId,v.competence,'pdf'));
   bind('time-print',(v:any)=>printTime(v.employeeId,v.competence,'print'));
 
+
+  bind('time-attachment-list',(v:any)=>storage.attendance.listAttachments(v.employeeId,v.competence));
+  bind('time-attachment-add',async(v:any)=>{
+    const selected=await dialog.showOpenDialog(mainWindow!,{title:'Anexar atestado ou justificativa',properties:['openFile'],
+      filters:[{name:'Documentos',extensions:['pdf','png','jpg','jpeg','webp']}]});
+    if(selected.canceled||!selected.filePaths[0])return null;
+    const path=selected.filePaths[0],extension=extname(path).toLowerCase();
+    const mime:Record<string,string>={'.pdf':'application/pdf','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp'};
+    if(!mime[extension])throw new Error('Formato de anexo inválido.');
+    const bytes=await readFile(path);
+    return storage.attendance.addAttachment(v.employeeId,v.date,basename(path),mime[extension],bytes);
+  });
+  bind('time-attachment-save',async(v:any)=>{
+    const item=storage.attendance.getAttachment(v.employeeId,v.id);
+    const selected=await dialog.showSaveDialog(mainWindow!,{title:'Salvar anexo',defaultPath:item.filename});
+    if(selected.canceled||!selected.filePath)return false;
+    await writeFile(selected.filePath,item.content);return true;
+  });
+  bind('time-attachment-remove',(v:any)=>storage.attendance.removeAttachment(v.employeeId,v.id));
   bind('time-export-report',async(v:any)=>{
     const result=await dialog.showSaveDialog(mainWindow!,{title:'Exportar indicadores de ponto',defaultPath:'Indicadores-Ponto-'+v.competence+'.csv',filters:[{name:'CSV',extensions:['csv']}]});
     if(result.canceled||!result.filePath)return false;
