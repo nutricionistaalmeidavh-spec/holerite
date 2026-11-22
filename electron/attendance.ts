@@ -193,6 +193,37 @@ export class AttendanceStore {
       return changes.length;
     }catch(e){this.db.exec('ROLLBACK;');throw e;}
   }
+  reviewSuggestions(employeeIds:string[],competence:string):{reviewed:number;employees:number} {
+    if(!Array.isArray(employeeIds)||!employeeIds.length||!validMonth(competence))
+      throw new Error('Informe os funcionários e a competência para conferência em lote.');
+    const ids=[...new Set(employeeIds.map(requiredId))];
+    // A single transaction guarantees that one team's batch review is not partially applied.
+    this.db.exec('BEGIN IMMEDIATE;');
+    try {
+      let reviewed=0,employees=0;
+      for(const employeeId of ids){
+        const employee=this.employee(employeeId);
+        this.requireEnabled(String(employee.company_id));
+        const sheet=this.getSheet(employeeId,competence);
+        // Closed historical sheets remain immutable; they can be reopened explicitly.
+        if(sheet.status==='closed')continue;
+        const pending=sheet.days.filter(day=>day.source==='suggested');
+        if(!pending.length)continue;
+        const stamp=now();
+        this.db.prepare(`UPDATE time_days SET source='reviewed',updated_at=?
+          WHERE employee_id=? AND competence=? AND source='suggested'`).run(stamp,employeeId,competence);
+        this.db.prepare(`UPDATE time_sheets SET revision=revision+1,updated_at=?
+          WHERE employee_id=? AND competence=? AND status='draft'`).run(stamp,employeeId,competence);
+        this.audit(employeeId,competence,'bulk-review',
+          {source:'suggested',dates:pending.map(day=>day.date)},
+          {source:'reviewed',dates:pending.map(day=>day.date)},
+          'Conferência administrativa em lote; horários gerados preservados como origem, sujeito à assinatura impressa.');
+        reviewed+=pending.length;employees++;
+      }
+      this.db.exec('COMMIT;');
+      return {reviewed,employees};
+    }catch(error){this.db.exec('ROLLBACK;');throw error;}
+  }
   autofill(employeeId:string,competence:string):TimeSheet {
     const sheet=this.getSheet(employeeId,competence);
     if(sheet.status==='closed')throw new Error('Ficha fechada.');
@@ -208,16 +239,8 @@ export class AttendanceStore {
     const sheet=this.getSheet(employeeId,competence);
     if(sheet.status==='closed')return sheet;
     const schedule=this.getSchedule(employeeId);
-    const dates=previewMonth(competence,schedule,0);
-    const recorded=new Map(sheet.days.map(d=>[d.date,d]));
-    for(const date of dates){
-      if(!schedule.weekdays.includes(weekday(date.date)))continue;
-      const day=recorded.get(date.date);
-      if(!day||day.source==='suggested'||(day.kind==='work'&&!day.start))
-        throw new Error('Dia '+date.date+' sem marcação real ou ocorrência confirmada.');
-    }
-    if(sheet.summary.suggestedDays && !sheet.days.every(day=>day.source!=='suggested'||day.kind!=='work'))
-      throw new Error('Existem marcações sugeridas ainda não confirmadas.');
+    // Missing or generated-only rows no longer block administrative closure.
+    // Unreviewed suggestions remain visible, but are excluded from payroll calculations.
     const snapshot={summary:sheet.summary,schedule,days:sheet.days,salaryCents:Number(this.employee(employeeId).salary_cents)};
     const result=this.db.prepare(`UPDATE time_sheets SET status='closed',closed_at=?,closed_snapshot_json=?,
       revision=revision+1,updated_at=? WHERE employee_id=? AND competence=? AND revision=? AND status='draft'`
