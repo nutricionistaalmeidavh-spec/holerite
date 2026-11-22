@@ -144,12 +144,22 @@ function bindIPC() {
   });
   bind('time-export-pdf',(v:any)=>printTime(v.employeeId,v.competence,'pdf'));
   bind('time-print',(v:any)=>printTime(v.employeeId,v.competence,'print'));
+
   bind('time-export-report',async(v:any)=>{
     const result=await dialog.showSaveDialog(mainWindow!,{title:'Exportar indicadores de ponto',defaultPath:'Indicadores-Ponto-'+v.competence+'.csv',filters:[{name:'CSV',extensions:['csv']}]});
     if(result.canceled||!result.filePath)return false;
     const people=new Map(storage.snapshot().employees.map(e=>[e.id,e]));
     const sheets=storage.attendance.matrix(v.companyId,v.competence);
-    const rows=[['Funcionário','Setor','Obra','Centro de custo','Competência','Horas trabalhadas','Horas extras','Horas noturnas','Minutos atraso','Faltas','Saldo banco minutos','DSR estimado R(v.companyId,v.competence,v.employeeIds??[],'pdf'));
+    const rows=[['Funcionário','Setor','Obra','Centro de custo','Competência','Minutos trabalhados','Minutos extras','Minutos noturnos','Minutos de atraso','Faltas','Saldo banco (min)','DSR estimado em centavos'],
+      ...sheets.map(s=>{
+        const p=people.get(s.employeeId);
+        return [s.employeeName,p?.sector||'',p?.jobSite||'',p?.costCenter||'',s.competence,String(s.summary.workedMinutes),String(s.summary.overtimeMinutes),String(s.summary.nightMinutes),String(s.summary.lateMinutes),String(s.summary.absences),String(s.summary.bankMinutes),String(s.summary.dsrCents??0)];
+      })];
+    const quote=(value:string)=>'"'+(/^[=+@\-\t\r]/.test(value)?"'"+value:value).replace(/"/g,'""')+'"';
+    await writeFile(result.filePath,'\uFEFF'+rows.map(r=>r.map(quote).join(';')).join('\r\n'),'utf8');
+    return true;
+  });
+  bind('time-export-batch-pdf',(v:any)=>printTimeBatch(v.companyId,v.competence,v.employeeIds??[],'pdf'));
   bind('time-print-batch',(v:any)=>printTimeBatch(v.companyId,v.competence,v.employeeIds??[],'print'));
   bind('export-backup',async()=>{
     const result=await dialog.showSaveDialog(mainWindow!,{title:'Backup da base local',defaultPath:`ArtiSys-Holerites-backup-${new Date().toISOString().slice(0,10)}.sqlite`,filters:[{name:'SQLite',extensions:['sqlite']}]});
