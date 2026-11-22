@@ -166,6 +166,8 @@ export interface HoleriteAPI {
   previewTimeFile(input:{token:string;mapping:ImportMapping}):Promise<ImportPreview>;
   commitTimeFile(input:{token:string;mapping:ImportMapping;allowReplace?:boolean}):Promise<{imported:number}>;
   getTimeImportHistory(companyId:string):Promise<Array<{filename:string;processed:number;created_at:string}>>;
+  getTimeBankBalance(input:{employeeId:string;competence:string}):Promise<number>;
+  exportTimeMatrix(input:{companyId:string;competence:string;format:'csv'|'xlsx'|'template'}):Promise<boolean>;
   exportTimePDF(input:{employeeId:string;competence:string}):Promise<boolean>;
   printTimeSheet(input:{employeeId:string;competence:string}):Promise<boolean>;
 
