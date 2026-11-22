@@ -34,6 +34,8 @@ const api: HoleriteAPI = {
   getTimeBankBalance: input => call('time-bank-balance',input),
   exportTimeMatrix: input => call('time-export-matrix',input),
   exportTimePDF: input => call('time-export-pdf',input),
-  printTimeSheet: input => call('time-print',input)
+  printTimeSheet: input => call('time-print',input),
+  exportTimeBatchPDF: input => call('time-export-batch-pdf',input),
+  printTimeBatch: input => call('time-print-batch',input)
 };
 contextBridge.exposeInMainWorld('holerites', api);
