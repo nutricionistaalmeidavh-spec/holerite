@@ -121,12 +121,20 @@ try {
   await verifyNoAlert();
   await screenshot('09-funcionarios-lista', 'Funcionários: lista preenchida');
 
-  // Conferência administrativa única de todos os dias, sem confirmar cada batida.
+  // Both modal choices must be respected: preview only or include in calculation now.
   await go('Controle de ponto');
   await page.locator('.time-filters select').selectOption({index:1});
   await page.getByRole('button', {name:'Gerar calendário sugerido'}).click();
-  await page.getByRole('button', {name:'Conferir mês em lote'}).click();
-  await page.getByText(/dias conferidos em lote/).waitFor();
+  const generationDialog=page.getByRole('dialog',{name:'Incluir horários gerados na apuração?'});
+  await generationDialog.waitFor();
+  await screenshot('25b-dialog-inclusao-apuracao','Diálogo de inclusão dos horários gerados na apuração');
+  await generationDialog.getByRole('button',{name:'Gerar sem incluir'}).click();
+  await page.locator('.time-source.suggested').first().waitFor();
+  assert.equal(await page.locator('.time-source.reviewed').count(),0,'Sem confirmação os horários não entram na apuração');
+  await page.getByRole('button', {name:'Gerar calendário sugerido'}).click();
+  await generationDialog.getByRole('button',{name:'Gerar e incluir na apuração'}).click();
+  await page.locator('.time-source.reviewed').first().waitFor();
+  assert.equal(await page.locator('.time-source.suggested').count(),0);
   assert.equal(await page.getByRole('button',{name:'Conferir',exact:true}).count(),0);
   await page.getByRole('button',{name:'Gerar holerite do ponto'}).click();
   await page.locator('.editor').waitFor({state:'visible'});
@@ -205,7 +213,7 @@ try {
   }
   await verifyNoAlert();
   assert.equal(issues.filter(issue => issue.startsWith('JS:')).length, 0, 'Exceções JavaScript encontradas.');
-  assert.equal(manifest.length, 35, 'Quantidade de capturas inferior ao esperado.');
+  assert.equal(manifest.length, 36, 'Quantidade de capturas inferior ao esperado.');
 } catch (error) {
   failure = error;
   console.error('QA VISUAL FALHOU:', error);
@@ -237,7 +245,7 @@ try {
     '',
     'Resultado: **' + report.status + '**',
     '',
-    'Capturas: **' + manifest.length + '/35**',
+    'Capturas: **' + manifest.length + '/36**',
     '',
     failure ? 'Erro: ' + String(failure) : 'Navegação, cadastros e estados da folha verificados.',
     '',
