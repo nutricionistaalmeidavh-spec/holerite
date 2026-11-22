@@ -1,10 +1,10 @@
 import {DatabaseSync} from 'node:sqlite';
 import {randomUUID} from 'node:crypto';
-import {assessMonth,defaultSchedule,previewMonth,validateDay,validateSchedule,validMonth,weekday,workedMinutes} from '../src/shared/time';
-import type {PointDay,PointSummary,WorkSchedule} from '../src/shared/time';
+import {assessMonth,defaultSchedule,previewMonth,validateDay,validateSchedule,validMonth,weekday,workedMinutes,diagnosePointDays} from '../src/shared/time';
+import type {PointDay,PointSummary,WorkSchedule,PointIssue} from '../src/shared/time';
 
 export interface TimeConfig {enabled:boolean;variationMinutes:number;schedule:WorkSchedule;}
-export interface TimeSheet {employeeId:string;companyId:string;competence:string;status:'draft'|'closed';revision:number;days:PointDay[];summary:PointSummary;closedAt:string|null;}
+export interface TimeSheet {employeeId:string;companyId:string;competence:string;status:'draft'|'closed';revision:number;days:PointDay[];summary:PointSummary;issues:PointIssue[];closedAt:string|null;}
 export interface MatrixChange {employeeId:string;competence:string;day:PointDay;expectedRevision?:number;}
 type Row=Record<string,unknown>;
 const now=()=>new Date().toISOString();
@@ -130,8 +130,10 @@ export class AttendanceStore {
     const row=this.db.prepare('SELECT * FROM time_sheets WHERE employee_id=? AND competence=?').get(employeeId,competence) as Row|undefined;
     const days=this.readDays(employeeId,competence);
     const snapshot=row?.closed_snapshot_json?json<{summary:PointSummary}>(row.closed_snapshot_json):null;
+    const issueSchedule=row?.closed_snapshot_json
+      ?json<{schedule:WorkSchedule}>(row.closed_snapshot_json).schedule:this.getSchedule(employeeId);
     return {employeeId,companyId,competence,status:row?.status==='closed'?'closed':'draft',revision:Number(row?.revision??0),
-      days,summary:snapshot?.summary??assessMonth(days,this.getSchedule(employeeId),Number(employee.salary_cents)),
+      days,issues:diagnosePointDays(days,issueSchedule,competence),summary:snapshot?.summary??assessMonth(days,this.getSchedule(employeeId),Number(employee.salary_cents)),
       closedAt:row?.closed_at?String(row.closed_at):null};
   }
   matrix(companyId:string,competence:string):Array<TimeSheet&{employeeName:string}> {
@@ -146,7 +148,7 @@ export class AttendanceStore {
   }
   auditHistory(employeeId:string,competence:string):Row[]{
     this.employee(employeeId);
-    return this.db.prepare('SELECT date,action,before_json,after_json,reason,created_at,actor_id FROM time_audit WHERE employee_id=? AND competence=? ORDER BY created_at DESC LIMIT 300').all(employeeId,competence) as Row[];
+    return this.db.prepare('SELECT ta.date,ta.action,ta.before_json,ta.after_json,ta.reason,ta.created_at,ta.actor_id,op.name AS actor_name FROM time_audit ta LEFT JOIN time_operators op ON ta.actor_id=op.id WHERE ta.employee_id=? AND ta.competence=? ORDER BY ta.created_at DESC LIMIT 300').all(employeeId,competence) as Row[];
   }
   saveMatrix(changes:MatrixChange[],overwriteImported=false):number {
     if(!Array.isArray(changes)||!changes.length||changes.length>30000)throw new Error('Informe de 1 a 30.000 dias por operação.');
