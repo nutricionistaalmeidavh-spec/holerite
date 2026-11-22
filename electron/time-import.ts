@@ -88,7 +88,7 @@ export class TimeImporter {
     const ext=extname(path).toLowerCase();
     if(!['.xlsx','.csv'].includes(ext))throw new Error('Selecione uma planilha XLSX ou CSV.');
     const info=await stat(path);
-    if(info.size>10*1024*1024||info.size===0)throw new Error('Arquivo deve ter no máximo 10 MB.');
+    if(info.size>30*1024*1024||info.size===0)throw new Error('Arquivo deve ter no máximo 30 MB.');
     const data=await readFile(path),hash=createHash('sha256').update(data).digest('hex');
     const book=new ExcelJS.Workbook();
     if(ext==='.csv'){
@@ -109,12 +109,12 @@ export class TimeImporter {
       const obj=Object.fromEntries(headers.map((h,i)=>[h,row.getCell(i+1).value]));
       if(Object.values(obj).every(v=>!textOf(v)))continue;
       rows.push(obj);
-      if(rows.length>500)throw new Error('Importação limitada a 500 linhas por arquivo. Divida a planilha.');
+      if(rows.length>30000)throw new Error('Importação limitada a 30.000 linhas por arquivo.');
     }
     if(!rows.length)throw new Error('Não há linhas de ponto para importar.');
     const token=randomUUID();
     this.pending.set(token,{companyId,filename:basename(path),hash,headers,rows});
-    return {token,filename:basename(path),headers,suggestedMapping:mapHeaders(headers),count:rows.length};
+    return {token,filename:basename(path),headers,suggestedMapping:(this.store.getImportMapping(companyId,headers) as ImportMapping|null)??mapHeaders(headers),count:rows.length};
   }
   private rows(token:string,mapping:ImportMapping){
     const p=this.pending.get(token);
@@ -169,6 +169,7 @@ export class TimeImporter {
     if(this.store.hasImportedHash(pending.companyId,pending.hash))throw new Error('Este arquivo já foi importado.');
     const imported=this.store.saveMatrix(accepted,allowReplace);
     this.store.recordImport(pending.companyId,pending.filename,pending.hash,imported);
+    this.store.saveImportMapping(pending.companyId,pending.headers,mapping as Record<string,string>);
     this.pending.delete(token);
     return {imported};
   }
