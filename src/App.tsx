@@ -4,8 +4,9 @@ import {calculateSpecialPayroll,calculateThirteenthMonths} from './shared/specia
 import type {PayrollKind, SpecialOptions, VacationOptions, ThirteenthOptions, TerminationOptions} from './shared/special';
 import {calculatePayroll, money} from './shared/payroll';
 import {PayrollKindTabs,PAYROLL_KIND_LABELS} from './ui/PayrollKindTabs';
+import {TimeControlPage} from './ui/TimeControlPage';
 
-type Tab='dashboard'|'payroll'|'employees'|'companies'|'history';
+type Tab='dashboard'|'payroll'|'employees'|'companies'|'history'|'time';
 const payrollKindLabels=PAYROLL_KIND_LABELS;
 const initialOptions=(kind:PayrollKind,competence:string,employee:Employee,advanceCents:number):SpecialOptions => {
   if(kind==='vacation')return {vacation:{startDate:competence+'-15',days:30,soldDays:0,acquisitionStart:employee.admissionDate}};
@@ -18,7 +19,7 @@ const initialOptions=(kind:PayrollKind,competence:string,employee:Employee,advan
 };
 
 type Modal='company'|'employee'|null;
-type IconName='dashboard'|'payroll'|'employees'|'company'|'history'|'plus'|'download'|'print'|'check'|'edit'|'search'|'close'|'trash'|'backup'|'arrow'|'menu';
+type IconName='dashboard'|'payroll'|'employees'|'company'|'history'|'plus'|'download'|'print'|'check'|'edit'|'search'|'close'|'trash'|'backup'|'arrow'|'menu'|'time';
 const ICONS:Record<IconName, string> = {
   dashboard:'M3 3h8v8H3z M13 3h8v5h-8z M13 10h8v11h-8z M3 13h8v8H3z',
   payroll:'M5 2h11l4 4v16H5z M16 2v5h4 M8 12h9 M8 16h9 M8 20h6',
@@ -35,7 +36,8 @@ const ICONS:Record<IconName, string> = {
   trash:'M3 6h18 M8 6V4h8v2 M6 6l1 15h10l1-15 M10 10v7 M14 10v7',
   backup:'M4 4h16v16H4z M8 4v6h8V4 M8 20v-7h8v7',
   arrow:'M5 12h14 M13 6l6 6-6 6',
-  menu:'M4 6h16 M4 12h16 M4 18h16'
+  menu:'M4 6h16 M4 12h16 M4 18h16',
+  time:'M12 3a9 9 0 1 0 0 18a9 9 0 0 0 0-18 M12 7v5l4 2'
 };
 const Icon=({name,size=20}: {name:IconName;size?:number})=><svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d={ICONS[name]}/></svg>;
 const brDate = (s:string)=>{if(!s)return '—'; const [y,m,d]=s.split('-'); return d?`${d}/${m}/${y}`:`${m}/${y}`;};
@@ -245,7 +247,7 @@ function App() {
   const monthPicker=<input className="month-input" aria-label="Competência" type="month" value={competence} onChange={e=>{setCompetence(e.target.value);setSelectedEmployeeId('');}}/>;
   const companyPicker=<select className="company-picker" aria-label="Empresa atual" value={companyId} onChange={e=>{setCompanyId(e.target.value);setSelectedEmployeeId('');}}>{data.companies.map(c=><option key={c.id} value={c.id}>{c.tradeName||c.legalName}</option>)}</select>;
   const selectEmployee=(id:string)=>{setSelectedEmployeeId(id);setTab('payroll');};
-  const title:Record<Tab,string>={dashboard:'Visão geral',payroll:'Folha de pagamento',employees:'Funcionários',companies:'Empresas',history:'Histórico de holerites'};
+  const title:Record<Tab,string>={dashboard:'Visão geral',payroll:'Folha de pagamento',employees:'Funcionários',companies:'Empresas',history:'Histórico de holerites',time:'Controle de ponto'};
   if(loading)return <div className="loading"><div className="brandmark">A</div><h2>ArtiSys Holerites</h2><p>Carregando seus dados locais…</p></div>;
   return <div className="app-shell">
     <aside className={'sidebar '+(sidebarOpen?'sidebar-open':'')} aria-label="Navegação principal">
@@ -256,7 +258,8 @@ function App() {
         ['payroll','Folha de pagamento','payroll'],
         ['employees','Funcionários','employees'],
         ['companies','Empresas','company'],
-        ['history','Histórico','history']
+        ['history','Histórico','history'],
+         ['time','Controle de ponto','time']
       ] as [Tab,string,IconName][]).map(([key,label,icon])=><button type="button" className={'nav-link '+(tab===key?'active':'')} aria-current={tab===key?'page':undefined} onClick={()=>navigate(key)} key={key}><Icon name={icon} size={19}/>{label}</button>)}</nav>
       <div className="sidebar-footer"><div className="secure-dot"/><div><b>Banco local</b><span>Seus dados permanecem neste computador.</span></div></div>
     </aside>
@@ -264,10 +267,11 @@ function App() {
     <div className="main">
       <header className="topbar"><div className="topbar-left"><button className="menu-toggle" onClick={()=>setSidebarOpen(true)} aria-label="Abrir menu"><Icon name="menu"/></button><span className="crumb">Workspace</span><span className="crumb-sep">/</span><strong>{title[tab]}</strong></div><div className="topbar-right">{data.companies.length>0&&companyPicker}<div className="avatar" title="ArtiSys Holerites">AS</div></div></header>
       <main className="page">
-        <div className="page-heading"><div><div className="eyebrow">ARTISYS · GESTÃO DE PESSOAS</div><h1>{title[tab]}</h1><p>{tab==='dashboard'?'Acompanhe seus lançamentos e recibos em um só lugar.':tab==='payroll'?'Calcule, confira e emita seus holerites.':tab==='employees'?'Cadastros e remunerações da equipe.':tab==='companies'?'Dados de identificação para seus recibos.':'Consulte, imprima e exporte comprovantes já emitidos.'}</p></div><div className="heading-actions">{(tab==='dashboard'||tab==='payroll')&&monthPicker}{tab==='payroll'&&data.companies.length>0&&<Button variant="secondary" icon="plus" disabled={busy||!employees.some(e=>e.active)} onClick={()=>{if(ask('Gerar rascunhos mensais apenas para funcionários ativos ainda sem holerite nesta competência? Documentos existentes serão preservados.'+(competence.startsWith('2026-')?'':' Os tributos desta competência serão manuais.')))void act(()=>window.holerites.generateMonthlyBatch({companyId,competence,taxMode:competence.startsWith('2026-')?'automatic':'manual'}),result=>{const summary=result as MonthlyBatchResult;return `Lote concluído: ${summary.created} criado(s) e ${summary.skipped} já existente(s).`;});}}>Gerar mês em lote</Button>}{tab==='dashboard'&&data.companies.length>0&&<Button icon="plus" onClick={()=>startKind('monthly')}>Novo documento</Button>}{tab==='employees'&&<Button icon="plus" disabled={!data.companies.length} onClick={()=>openEmployee()}>Novo funcionário</Button>}{tab==='companies'&&<Button icon="plus" onClick={()=>openCompany()}>Nova empresa</Button>}{tab==='history'&&<Button variant="secondary" icon="download" onClick={()=>void act(()=>window.holerites.exportCSV(),'Relatório CSV exportado.')}>Exportar CSV</Button>}</div></div>
+        <div className="page-heading"><div><div className="eyebrow">ARTISYS · GESTÃO DE PESSOAS</div><h1>{title[tab]}</h1><p>{tab==='dashboard'?'Acompanhe seus lançamentos e recibos em um só lugar.':tab==='payroll'?'Calcule, confira e emita seus holerites.':tab==='employees'?'Cadastros e remunerações da equipe.':tab==='companies'?'Dados de identificação para seus recibos.':tab==='time'?'Ficha individual, matriz da equipe e importação opcional de ponto.':'Consulte, imprima e exporte comprovantes já emitidos.'}</p></div><div className="heading-actions">{(tab==='dashboard'||tab==='payroll'||tab==='time')&&monthPicker}{tab==='payroll'&&data.companies.length>0&&<Button variant="secondary" icon="plus" disabled={busy||!employees.some(e=>e.active)} onClick={()=>{if(ask('Gerar rascunhos mensais apenas para funcionários ativos ainda sem holerite nesta competência? Documentos existentes serão preservados.'+(competence.startsWith('2026-')?'':' Os tributos desta competência serão manuais.')))void act(()=>window.holerites.generateMonthlyBatch({companyId,competence,taxMode:competence.startsWith('2026-')?'automatic':'manual'}),result=>{const summary=result as MonthlyBatchResult;return `Lote concluído: ${summary.created} criado(s) e ${summary.skipped} já existente(s).`;});}}>Gerar mês em lote</Button>}{tab==='dashboard'&&data.companies.length>0&&<Button icon="plus" onClick={()=>startKind('monthly')}>Novo documento</Button>}{tab==='employees'&&<Button icon="plus" disabled={!data.companies.length} onClick={()=>openEmployee()}>Novo funcionário</Button>}{tab==='companies'&&<Button icon="plus" onClick={()=>openCompany()}>Nova empresa</Button>}{tab==='history'&&<Button variant="secondary" icon="download" onClick={()=>void act(()=>window.holerites.exportCSV(),'Relatório CSV exportado.')}>Exportar CSV</Button>}</div></div>
         {error&&<div className="error-banner" role="alert"><span>{error}</span><button aria-label="Fechar erro" onClick={()=>setError('')}><Icon name="close" size={16}/></button></div>}
         {toast&&<div className="success-banner" role="status"><Icon name="check" size={17}/>{toast}<button onClick={()=>setToast('')} aria-label="Fechar aviso"><Icon name="close" size={15}/></button></div>}
         {data.companies.length===0&&tab!=='companies'?<div className="card"><Empty title="Comece cadastrando sua empresa" description="O primeiro passo é informar os dados que aparecerão nos recibos de salário." action={<Button icon="plus" onClick={()=>openCompany()}>Cadastrar empresa</Button>}/></div>:null}
+        {data.companies.length>0&&tab==='time'&&<TimeControlPage companyId={companyId} competence={competence} employees={employees} onPayrollUpdated={()=>void reload()}/>}
         {data.companies.length>0&&tab==='dashboard'&&<>
           <section className="overview-hero" aria-label="Emissão de documentos e resumo da competência">
             <div className="hero-copy">
