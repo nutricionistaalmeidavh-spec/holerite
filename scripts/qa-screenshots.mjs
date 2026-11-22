@@ -131,10 +131,12 @@ try {
   await generationDialog.getByRole('button',{name:'Gerar sem incluir'}).click();
   await page.locator('.time-source.suggested').first().waitFor();
   assert.equal(await page.locator('.time-source.reviewed').count(),0,'Sem confirmação os horários não entram na apuração');
+  assert.match(await page.locator('.time-status small').textContent()||'',/Trabalhadas 00:00/);
   await page.getByRole('button', {name:'Gerar calendário sugerido'}).click();
   await generationDialog.getByRole('button',{name:'Gerar e incluir na apuração'}).click();
   await page.locator('.time-source.reviewed').first().waitFor();
   assert.equal(await page.locator('.time-source.suggested').count(),0);
+  assert.match(await page.locator('.time-status small').textContent()||'',/Trabalhadas (?!00:00)\\d+:\\d{2}/);
   assert.equal(await page.getByRole('button',{name:'Conferir',exact:true}).count(),0);
   await page.getByRole('button',{name:'Gerar holerite do ponto'}).click();
   await page.locator('.editor').waitFor({state:'visible'});
@@ -187,7 +189,7 @@ try {
   await screenshot('24-editar-empresa', 'Modal para editar empresa existente');
   await dialog.getByRole('button', {name:'Cancelar'}).click();
 
-  // Controle de ponto é principal; o holerite foi emitido somente após a ficha fechada.
+  // Controle de ponto é principal; o diálogo permite incluir imediatamente sem fechamento obrigatório.
   await go('Controle de ponto');
   await screenshot('25-ponto-principal', 'Controle de ponto é a tela principal, sem ativação opcional');
   await page.getByRole('tab', {name:'Ficha individual'}).waitFor();
@@ -196,6 +198,10 @@ try {
   await screenshot('27-ponto-configuracoes', 'Jornada e parâmetros da competência');
   await page.getByRole('tab', {name:'Matriz da equipe'}).click();
   await page.getByText('Uma linha por funcionário/dia').waitFor();
+  await page.getByRole('button',{name:'Criar calendários da equipe'}).click();
+  await generationDialog.waitFor();
+  await generationDialog.getByRole('button',{name:'Cancelar'}).click();
+  await generationDialog.waitFor({state:'hidden'});
   await screenshot('28-ponto-matriz', 'Matriz mensal de ponto da equipe');
   await page.getByRole('tab', {name:'Importar planilha'}).click();
   await screenshot('29-ponto-importacao', 'Importação de ponto CSV/XLSX e modelo gratuito');
