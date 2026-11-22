@@ -1,3 +1,6 @@
+import type {WorkSchedule} from './time';
+import type {TimeConfig,TimeSheet,MatrixChange} from '../../electron/attendance';
+import type {ImportChoice,ImportPreview,ImportMapping} from '../../electron/time-import';
 export type ItemKind = 'earning' | 'deduction';
 export type PayrollStatus = 'draft' | 'finalized' | 'paid';
 export type TaxMode = 'automatic' | 'manual';
@@ -147,4 +150,23 @@ export interface HoleriteAPI {
   print(id: string): Promise<void>;
   exportBackup(): Promise<boolean>;
   exportCSV(): Promise<boolean>;
+  getTimeConfig(companyId:string):Promise<TimeConfig>;
+  setTimeConfig(input:{companyId:string;config:TimeConfig}):Promise<TimeConfig>;
+  getTimeSchedule(employeeId:string):Promise<WorkSchedule>;
+  setTimeSchedule(input:{employeeId:string;schedule:WorkSchedule}):Promise<WorkSchedule>;
+  getTimeSheet(input:{employeeId:string;competence:string}):Promise<TimeSheet>;
+  getTimeMatrix(input:{companyId:string;competence:string}):Promise<Array<TimeSheet&{employeeName:string}>>;
+  getTimeAudit(input:{employeeId:string;competence:string}):Promise<Array<{date:string|null;action:string;reason:string;created_at:string}>>;
+  autofillTimeSheet(input:{employeeId:string;competence:string}):Promise<TimeSheet>;
+  saveTimeMatrix(input:{changes:MatrixChange[];overwriteImported?:boolean}):Promise<number>;
+  closeTimeSheet(input:{employeeId:string;competence:string}):Promise<TimeSheet>;
+  reopenTimeSheet(input:{employeeId:string;competence:string;reason:string}):Promise<TimeSheet>;
+  applyTimeToPayroll(input:{employeeId:string;competence:string}):Promise<PayrollRecord>;
+  chooseTimeFile(companyId:string):Promise<ImportChoice|null>;
+  previewTimeFile(input:{token:string;mapping:ImportMapping}):Promise<ImportPreview>;
+  commitTimeFile(input:{token:string;mapping:ImportMapping;allowReplace?:boolean}):Promise<{imported:number}>;
+  getTimeImportHistory(companyId:string):Promise<Array<{filename:string;processed:number;created_at:string}>>;
+  exportTimePDF(input:{employeeId:string;competence:string}):Promise<boolean>;
+  printTimeSheet(input:{employeeId:string;competence:string}):Promise<boolean>;
+
 }
