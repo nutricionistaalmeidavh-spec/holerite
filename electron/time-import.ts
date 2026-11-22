@@ -17,11 +17,11 @@ const ALIASES:Record<ImportField,string[]>={
   employee:['funcionario','funcionário','colaborador','empregado','nome'],
   cpf:['cpf','documento'],registration:['matricula','matrícula','registro'],
   date:['data','dia','date'],kind:['tipo','ocorrencia','ocorrência','situacao','situação'],
-  start:['entrada','entrada 1','inicio','início','entrada manha','entrada manhã'],
-  breakStart:['saida almoco','saída almoço','intervalo saida','intervalo saída','saida 1','saída 1'],
-  breakEnd:['retorno almoco','retorno almoço','volta almoco','volta almoço','intervalo entrada','entrada 2'],
-  end:['saida','saída','saida final','saída final','saida 2','saída 2'],
-  notes:['observacoes','observações','obs','justificativa']
+  start:['entrada','entrada 1','inicio','início','entrada manha','entrada manhã','manha entrada','manhã entrada'],
+  breakStart:['saida almoco','saída almoço','intervalo saida','intervalo saída','saida 1','saída 1','manha saida','manhã saída'],
+  breakEnd:['retorno almoco','retorno almoço','volta almoco','volta almoço','intervalo entrada','entrada 2','tarde entrada'],
+  end:['saida','saída','saida final','saída final','saida 2','saída 2','tarde saida','tarde saída'],
+  notes:['observacoes','observações','obs','justificativa','exceções/observações','excecoes observacoes']
 };
 const norm=(s:string)=>s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'').trim();
 function mapHeaders(headers:string[]):ImportMapping {
