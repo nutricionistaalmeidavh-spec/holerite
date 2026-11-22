@@ -1,6 +1,7 @@
 import {useState} from 'react';
-import type {EmployeeImportChoice,EmployeeImportPreview,EmployeeImportMapping,EmployeeImportField} from '../../electron/employee-import';
-import {EMPLOYEE_IMPORT_COLUMNS} from '../../electron/employee-import';
+import type {EmployeeImportChoice,EmployeeImportPreview,EmployeeImportMapping} from '../../electron/employee-import';
+import {EMPLOYEE_IMPORT_COLUMNS} from '../shared/employee-import-fields';
+import type {EmployeeImportField} from '../shared/employee-import-fields';
 
 export function EmployeeImportPanel({companyId,onDone}:{companyId:string;onDone:()=>Promise<void>}){
   const [choice,setChoice]=useState<EmployeeImportChoice|null>(null);
