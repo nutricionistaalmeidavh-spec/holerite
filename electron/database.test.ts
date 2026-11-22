@@ -5,6 +5,14 @@ import {DatabaseSync} from 'node:sqlite';
 import {mkdtempSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {defaultSchedule,previewMonth} from '../src/shared/time';
+
+const closeMonthlyPoint=(store:HoleriteDatabase,employeeId:string,competence:string)=>{
+  const days=previewMonth(competence,defaultSchedule(),0)
+    .map(day=>day.kind==='work'?{...day,source:'manual' as const}:day);
+  store.attendance.saveMatrix(days.map(day=>({employeeId,competence,day})));
+  store.attendance.close(employeeId,competence);
+};
 
 const createExample = () => {
   const store = new HoleriteDatabase(':memory:');
@@ -14,6 +22,7 @@ const createExample = () => {
 };
 test('persists company, employee and payroll with exactly one canonical calculation', () => {
   const {store,company,employee} = createExample();
+  closeMonthlyPoint(store,employee.id,'2026-11');
   const record = store.savePayroll({employeeId:employee.id,competence:'2026-11',entries:[],taxMode:'automatic'});
   assert.equal(store.snapshot().payrolls.length, 1);
   assert.equal(record.details.company.legalName, company.legalName);
@@ -24,6 +33,7 @@ test('persists company, employee and payroll with exactly one canonical calculat
 });
 test('finalized payroll is immutable and paid state is explicit', () => {
   const {store,employee}=createExample();
+  closeMonthlyPoint(store,employee.id,'2026-11');
   const p=store.savePayroll({employeeId:employee.id,competence:'2026-11',entries:[],taxMode:'automatic'});
   const finalized=store.finalizePayroll(p.id);
   assert.equal(finalized.status,'finalized');
@@ -36,6 +46,7 @@ test('finalized payroll is immutable and paid state is explicit', () => {
 });
 test('saved receipt keeps a snapshot when employee salary changes', () => {
   const {store,employee}=createExample();
+  closeMonthlyPoint(store,employee.id,'2026-11');
   const original=store.savePayroll({employeeId:employee.id,competence:'2026-11',entries:[],taxMode:'automatic'});
   store.finalizePayroll(original.id);
   store.saveEmployee({id:employee.id,companyId:employee.companyId,name:employee.name,cpf:employee.cpf,role:employee.role,admissionDate:employee.admissionDate,salaryCents:450000,dependents:0,active:true});

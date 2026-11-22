@@ -121,9 +121,30 @@ try {
   await verifyNoAlert();
   await screenshot('09-funcionarios-lista', 'Funcionários: lista preenchida');
 
+  // Both modal choices must be respected: preview only or include in calculation now.
+  await go('Controle de ponto');
+  await page.locator('.time-filters select').selectOption({index:1});
+  await page.getByRole('button', {name:'Gerar calendário sugerido'}).click();
+  const generationDialog=page.getByRole('dialog',{name:'Incluir horários gerados na apuração?'});
+  await generationDialog.waitFor();
+  await screenshot('25b-dialog-inclusao-apuracao','Diálogo de inclusão dos horários gerados na apuração');
+  await generationDialog.getByRole('button',{name:'Gerar sem incluir'}).click();
+  await page.locator('.time-source.suggested').first().waitFor();
+  assert.equal(await page.locator('.time-source.reviewed').count(),0,'Sem confirmação os horários não entram na apuração');
+  assert.match(await page.locator('.time-status small').textContent()||'',/Trabalhadas 00:00/);
+  await page.getByRole('button', {name:'Gerar calendário sugerido'}).click();
+  await generationDialog.getByRole('button',{name:'Gerar e incluir na apuração'}).click();
+  await page.locator('.time-source.reviewed').first().waitFor();
+  assert.equal(await page.locator('.time-source.suggested').count(),0);
+  assert.match(await page.locator('.time-status small').textContent()||'',/Trabalhadas (?!00:00)\d+:\d{2}/);
+  assert.equal(await page.getByRole('button',{name:'Conferir',exact:true}).count(),0);
+  await page.getByRole('button',{name:'Gerar holerite do ponto'}).click();
+  await page.locator('.editor').waitFor({state:'visible'});
+  await verifyNoAlert();
+
   await go('Visão geral');
   await screenshot('10-visao-geral', 'Dashboard após cadastros');
-  await go('Folha de pagamento');
+  await go('Holerites e folha');
   await page.locator('input[aria-label="Competência"]').fill('2026-11');
   await screenshot('11-folha-sem-selecao', 'Folha: seleção de documento e colaborador');
   await page.locator('.employee-rail-item').filter({hasText:'Colaborador Demonstração QA'}).click();
@@ -140,7 +161,7 @@ try {
   await screenshot('16-rescisao', 'Rescisão: motivo, aviso e verbas');
   await kind('Salário mensal');
   await screenshot('17-mensal-com-recorrencia', 'Folha mensal com verba recorrente pré-preenchida');
-  await page.getByRole('button', {name:'Salvar rascunho'}).click();
+  await page.getByRole('button', {name:/Salvar (rascunho|alterações)/}).click();
   await page.getByRole('button', {name:'Finalizar', exact:true}).waitFor();
   await verifyNoAlert();
   await screenshot('18-rascunho-salvo', 'Holerite mensal salvo em rascunho');
@@ -168,20 +189,37 @@ try {
   await screenshot('24-editar-empresa', 'Modal para editar empresa existente');
   await dialog.getByRole('button', {name:'Cancelar'}).click();
 
-  await page.setViewportSize({width:1024,height:768});
+  // Controle de ponto é principal; o diálogo permite incluir imediatamente sem fechamento obrigatório.
+  await go('Controle de ponto');
+  await screenshot('25-ponto-principal', 'Controle de ponto é a tela principal, sem ativação opcional');
+  await page.getByRole('tab', {name:'Ficha individual'}).waitFor();
+  await screenshot('26-ponto-conferido-lote', 'Ficha conferida em lote sem bloqueio antes do holerite');
+  await page.getByRole('tab', {name:'Configurações'}).click();
+  await screenshot('27-ponto-configuracoes', 'Jornada e parâmetros da competência');
+  await page.getByRole('tab', {name:'Matriz da equipe'}).click();
+  await page.getByText('Uma linha por funcionário/dia').waitFor();
+  await page.getByRole('button',{name:'Criar calendários da equipe'}).click();
+  await generationDialog.waitFor();
+  await generationDialog.getByRole('button',{name:'Cancelar'}).click();
+  await generationDialog.waitFor({state:'hidden'});
+  await screenshot('28-ponto-matriz', 'Matriz mensal de ponto da equipe');
+  await page.getByRole('tab', {name:'Importar planilha'}).click();
+  await screenshot('29-ponto-importacao', 'Importação de ponto CSV/XLSX e modelo gratuito');
+    await page.setViewportSize({width:1024,height:768});
   for (const [label, name] of [
-    ['Visão geral', '25-compacto-dashboard'],
-    ['Empresas', '26-compacto-empresas'],
-    ['Funcionários', '27-compacto-funcionarios'],
-    ['Folha de pagamento', '28-compacto-folha'],
-    ['Histórico', '29-compacto-historico']
+    ['Visão geral', '30-compacto-dashboard'],
+    ['Empresas', '31-compacto-empresas'],
+    ['Funcionários', '32-compacto-funcionarios'],
+    ['Holerites e folha', '33-compacto-folha'],
+    ['Histórico', '34-compacto-historico'],
+    ['Controle de ponto', '35-compacto-ponto']
   ]) {
     await go(label);
     await screenshot(name, 'Viewport compacto: ' + label);
   }
   await verifyNoAlert();
   assert.equal(issues.filter(issue => issue.startsWith('JS:')).length, 0, 'Exceções JavaScript encontradas.');
-  assert.equal(manifest.length, 29, 'Quantidade de capturas inferior ao esperado.');
+  assert.equal(manifest.length, 36, 'Quantidade de capturas inferior ao esperado.');
 } catch (error) {
   failure = error;
   console.error('QA VISUAL FALHOU:', error);
@@ -213,7 +251,7 @@ try {
     '',
     'Resultado: **' + report.status + '**',
     '',
-    'Capturas: **' + manifest.length + '/29**',
+    'Capturas: **' + manifest.length + '/36**',
     '',
     failure ? 'Erro: ' + String(failure) : 'Navegação, cadastros e estados da folha verificados.',
     '',

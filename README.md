@@ -1,6 +1,6 @@
-# ArtiSys Holerites
+# ArtiSys Controle de Ponto e Holerites
 
-Aplicativo **desktop offline para Windows** para cadastrar empresas e colaboradores, preparar a folha, calcular INSS/IRRF nas competências suportadas e emitir holerites em PDF (duas vias). Sem SaaS, APIs pagas ou serviços externos.
+Aplicativo **desktop offline para Windows** com foco em **controle de ponto**: cadastrar empresas e funcionários, registrar ou importar jornadas, apurar horas, conferir e fechar o mês e, como última etapa, preparar e emitir holerites em PDF. Sem SaaS, APIs pagas ou serviços externos.
 
 ## Stack
 
@@ -13,10 +13,10 @@ Aplicativo **desktop offline para Windows** para cadastrar empresas e colaborado
 
 - Cadastro de múltiplas empresas, colaboradores, salários, cargos, CPF, CNPJ e dependentes.
 - Perfil complementar do funcionário: matrícula, PIS/NIS, jornada, banco, agência, conta, Pix e verbas mensais recorrentes.
-- Gerar mês em lote: cria somente rascunhos de funcionários ativos sem holerite naquela competência, preserva os anteriores e desfaz todo o lote caso haja erro. Rubricas recorrentes aplicam-se apenas ao salário mensal.
+- Gerar mês em lote: cria holerites para funcionários ativos, com ou sem fechamento prévio do ponto, preserva documentos existentes e desfaz o lote caso haja erro. Rubricas recorrentes aplicam-se apenas ao salário mensal.
 - Migração aditiva do SQLite para os novos campos sem descartar cadastros ou recibos antigos.
 - Cinco tipos de documento por colaborador/competência: **salário mensal, férias, 13º (1ª e 2ª parcelas) e rescisão**.
-- Folha mensal por competência e funcionário; salário-base ajustável na competência sem modificar o cadastro.
+- Holerite mensal é a etapa final recomendada do fluxo, mas sem bloqueio obrigatório de conferência ou fechamento do ponto. Salário-base ajustável sem modificar o cadastro.
 - Férias: dias gozados, abono pecuniário, terço constitucional e prazo de pagamento indicativo.
 - 13º: avos, adiantamento e separação das incidências entre parcelas.
 - Rescisão: motivo, aviso proporcional, saldo salarial, férias vencidas/proporcionais, 13º proporcional e estimativa de multa FGTS (fora do líquido).
@@ -30,6 +30,17 @@ Aplicativo **desktop offline para Windows** para cadastrar empresas e colaborado
 - PDF A4 em duas vias com assinatura física; impressão por dispositivo local.
 - Histórico, relatório CSV e backup consistente do SQLite com escolha do local.
 - Sem login obrigatório, telemetria ou assinaturas. O uso da folha continua offline; apenas a checagem opcional de updates precisa de internet.
+
+## Controle de ponto — núcleo do sistema (P0/P1/P2)
+
+- Funcionalidade principal, disponível automaticamente a todas as empresas, inclusive bases antigas. Não existe ativação opcional.
+- Ficha manual e geração semiautomática com variação opcional; ao gerar, um diálogo permite **incluir imediatamente na apuração** ou **gerar sem incluir**, além da conferência posterior em lote por mês/equipe. A origem dos horários gerados permanece auditável.
+- Matriz da equipe, colagem do Excel, importação CSV/XLSX com mapeamento e validação, exportação de planilhas e ficha PDF.
+- Apuração de jornada, horas extras, atraso, ausências, adicional noturno e banco de horas. Fechamento é opcional, e as rubricas podem ser integradas ao holerite mensal ainda em rascunho, sem duplicação.
+- Funciona totalmente offline com SQLite local; usa [ExcelJS](https://github.com/exceljs/exceljs) (MIT) para planilhas.
+- **Não é REP homologado, não emite AFD/AEJ e não equivale a marcação eletrônica oficial.** Regras salariais e convencionais requerem conferência profissional.
+
+Instruções, limitações legais e fluxo completo: [Módulo de Controle de Ponto](docs/controle-ponto.md).
 
 ## Desenvolvimento
 
@@ -48,7 +59,7 @@ Para criar o instalador do Windows (preferencialmente no Windows):
 npm run dist:win
 ```
 
-O resultado fica em `release/ArtiSys-Holerites-Setup-0.2.0.exe`. O arquivo ficará **sem assinatura de código**: o Windows SmartScreen poderá avisar. O workflow **Quality and Windows setup** também permite gerar um artefato manual via `workflow_dispatch`, sem publicar uma release.
+O resultado fica em `release/ArtiSys-Holerites-Setup-0.3.0.exe`. O arquivo ficará **sem assinatura de código**: o Windows SmartScreen poderá avisar. O workflow **Quality and Windows setup** também permite gerar um artefato manual via `workflow_dispatch`, sem publicar uma release.
 
 ### Atualizações via GitHub Releases
 

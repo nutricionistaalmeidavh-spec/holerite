@@ -5,10 +5,14 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { HoleriteDatabase } from './database';
 import { receiptHTML } from './receipt';
+import {pointReceiptHTML} from './point-receipt';
+import {TimeImporter} from './time-import';
+import {exportTimeFile} from './time-export';
 import type {PayrollRecord} from '../src/shared/types';
 
 let mainWindow: BrowserWindow | null = null;
 let storage: HoleriteDatabase;
+let timeImporter: TimeImporter;
 
 const formatFilename = (p: PayrollRecord) => {
   const name = p.details.employee.name.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9_-]+/gi,'-').slice(0,45);
@@ -35,6 +39,28 @@ async function printWindow(p: PayrollRecord, action:'pdf'|'print'): Promise<bool
     return true;
   } finally {if (!window.isDestroyed()) window.destroy();}
 }
+async function printTime(employeeId:string,competence:string,action:'pdf'|'print'):Promise<boolean>{
+  const sheet=storage.attendance.getSheet(employeeId,competence);
+  const employee=storage.getEmployee(employeeId),company=storage.getCompany(employee.companyId);
+  const html=pointReceiptHTML(sheet,employee,company);
+  const window=new BrowserWindow({show:false,width:1000,height:800,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}});
+  window.webContents.setWindowOpenHandler(()=>({action:'deny'}));
+  try {
+    await window.loadURL('data:text/html;charset=utf-8,'+encodeURIComponent(html));
+    if(action==='pdf'){
+      const name=employee.name.normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').replace(/[^a-z0-9-]/gi,'-').slice(0,40);
+      const selection=await dialog.showSaveDialog(mainWindow!,{title:'Salvar ficha de ponto',defaultPath:'Ficha-Ponto-'+name+'-'+competence+'.pdf',filters:[{name:'PDF',extensions:['pdf']}]});
+      if(selection.canceled||!selection.filePath)return false;
+      const data=await window.webContents.printToPDF({pageSize:'A4',printBackground:true,landscape:true});
+      await writeFile(selection.filePath,data);return true;
+    }
+    await new Promise<void>((resolve,reject)=>window.webContents.print({silent:false,printBackground:true},(success,reason)=>{
+      if(success||reason==='Print job canceled')resolve();
+      else reject(new Error(reason||'Falha ao imprimir ficha.'));
+    }));
+    return true;
+  }finally{if(!window.isDestroyed())window.destroy();}
+}
 function bindIPC() {
   const bind=(name:string, fn:(arg:any)=>any)=>{
     ipcMain.handle('holerites:'+name, (event,arg:unknown)=>{
@@ -52,6 +78,44 @@ function bindIPC() {
   bind('delete-draft',v=>storage.deleteDraft(v));
   bind('export-pdf',(id:string)=>printWindow(storage.getPayroll(id),'pdf'));
   bind('print',(id:string)=>printWindow(storage.getPayroll(id),'print'));
+  bind('time-config',(id:string)=>storage.attendance.getConfig(id));
+  bind('time-set-config',(v:any)=>storage.attendance.setConfig(v.companyId,v.config));
+  bind('time-schedule',(id:string)=>storage.attendance.getSchedule(id));
+  bind('time-set-schedule',(v:any)=>storage.attendance.setSchedule(v.employeeId,v.schedule));
+  bind('time-sheet',(v:any)=>storage.attendance.getSheet(v.employeeId,v.competence));
+  bind('time-matrix',(v:any)=>storage.attendance.matrix(v.companyId,v.competence));
+  bind('time-audit',(v:any)=>storage.attendance.auditHistory(v.employeeId,v.competence));
+  bind('time-autofill',(v:any)=>storage.attendance.autofill(v.employeeId,v.competence));
+  bind('time-bulk-review',(v:any)=>storage.attendance.reviewSuggestions(v.employeeIds,v.competence));
+  bind('time-save-matrix',(v:any)=>storage.attendance.saveMatrix(v.changes,v.overwriteImported===true));
+  bind('time-close',(v:any)=>storage.attendance.close(v.employeeId,v.competence));
+  bind('time-reopen',(v:any)=>storage.attendance.reopen(v.employeeId,v.competence,v.reason));
+  bind('time-apply-payroll',(v:any)=>storage.applyTimeToPayroll(v.employeeId,v.competence));
+  bind('time-import-choose',async(companyId:string)=>{
+    const select=await dialog.showOpenDialog(mainWindow!,{title:'Importar planilha de ponto',properties:['openFile'],filters:[{name:'Planilhas',extensions:['csv','xlsx']}]});
+    if(select.canceled||!select.filePaths[0])return null;
+    return timeImporter.choose(companyId,select.filePaths[0]);
+  });
+  bind('time-import-preview',(v:any)=>timeImporter.preview(v.token,v.mapping));
+  bind('time-import-commit',(v:any)=>timeImporter.commit(v.token,v.mapping,v.allowReplace===true));
+  bind('time-import-history',(id:string)=>storage.attendance.importHistory(id));
+  bind('time-bank-balance',(v:any)=>storage.attendance.bankBalance(v.employeeId,v.competence));
+  bind('time-export-matrix',async(v:any)=>{
+    const format=v?.format;
+    if(!['csv','xlsx','template'].includes(format))throw new Error('Formato inválido.');
+    const ext=format==='csv'?'csv':'xlsx';
+    const dialogResult=await dialog.showSaveDialog(mainWindow!,{
+      title:format==='template'?'Salvar modelo de planilha':'Exportar matriz de ponto',
+      defaultPath:format==='template'?'Modelo-Controle-Ponto.xlsx':'Controle-Ponto-'+v.competence+'.'+ext,
+      filters:[{name:ext.toUpperCase(),extensions:[ext]}]
+    });
+    if(dialogResult.canceled||!dialogResult.filePath)return false;
+    await exportTimeFile({store:storage.attendance,employees:storage.snapshot().employees,
+      companyId:v.companyId,competence:v.competence,format,filePath:dialogResult.filePath});
+    return true;
+  });
+  bind('time-export-pdf',(v:any)=>printTime(v.employeeId,v.competence,'pdf'));
+  bind('time-print',(v:any)=>printTime(v.employeeId,v.competence,'print'));
   bind('export-backup',async()=>{
     const result=await dialog.showSaveDialog(mainWindow!,{title:'Backup da base local',defaultPath:`ArtiSys-Holerites-backup-${new Date().toISOString().slice(0,10)}.sqlite`,filters:[{name:'SQLite',extensions:['sqlite']}]});
     if(result.canceled || !result.filePath) return false;
@@ -161,6 +225,7 @@ app.whenReady().then(async()=>{
   const directory=app.getPath('userData');
   await mkdir(directory,{recursive:true});
   storage=new HoleriteDatabase(join(directory,'holerites.sqlite'));
+  timeImporter=new TimeImporter(storage.attendance,()=>storage.snapshot().employees);
   bindIPC();
   await createMain();
   checkUpdatesAtStartup();

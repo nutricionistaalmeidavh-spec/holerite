@@ -1,5 +1,7 @@
 import { DatabaseSync, backup } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
+import {AttendanceStore} from './attendance';
+import {payrollEntriesFromPoint} from '../src/shared/time';
 import { calculatePayroll } from '../src/shared/payroll';
 import {calculateSpecialPayroll} from '../src/shared/special';
 import type {PayrollKind} from '../src/shared/special';
@@ -24,6 +26,7 @@ const parseJSON = <T>(value: unknown): T => JSON.parse(String(value)) as T;
 
 export class HoleriteDatabase {
   private db: DatabaseSync;
+  readonly attendance: AttendanceStore;
   constructor(path: string) {
     this.db = new DatabaseSync(path, {timeout: 5000});
     this.db.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;');
@@ -50,6 +53,7 @@ export class HoleriteDatabase {
     `);
     this.migrateEmployeeProfiles();
     this.migrateOldPayrolls();
+    this.attendance=new AttendanceStore(this.db);
   }
   private migrateEmployeeProfiles() {
     // Migração aditiva: os cadastros e recibos antigos permanecem intocados.
@@ -85,6 +89,24 @@ export class HoleriteDatabase {
         CREATE INDEX IF NOT EXISTS idx_payroll_company_competence ON payrolls(company_id, competence);`);
       this.db.exec('COMMIT;');
     } catch(error){this.db.exec('ROLLBACK;');throw error;}
+  }
+  applyTimeToPayroll(employeeId:string,competence:string): PayrollRecord {
+    const sheet=this.attendance.getSheet(employeeId,competence);
+    const employee=this.getEmployee(employeeId);
+    const schedule=sheet.status==='closed'?this.attendance.getClosedSchedule(employeeId,competence):this.attendance.getSchedule(employeeId);
+    const pointItems=payrollEntriesFromPoint(competence,sheet.summary,schedule);
+    const original=this.db.prepare("SELECT * FROM payrolls WHERE employee_id=? AND competence=? AND kind='monthly'")
+      .get(employeeId,competence) as Row|undefined;
+    const existing=original?this.payrollFrom(original):null;
+    if(existing&&existing.status!=='draft')throw new Error('Holerite finalizado ou pago não pode ser alterado.');
+    const otherEntries=existing?existing.details.items.filter(item=>
+      !['fixed-salary','auto-inss','auto-irrf'].includes(item.id) &&
+      !item.id.startsWith('ponto-'+competence+'-')
+    ):employee.recurringEntries??[];
+    return this.savePayroll({id:existing?.id,employeeId,competence,kind:'monthly',
+      taxMode:existing?.details.taxMode??(competence.startsWith('2026-')?'automatic':'manual'),
+      salaryOverrideCents:existing?.details.salaryCents??employee.salaryCents,
+      entries:[...otherEntries,...pointItems]});
   }
   close() {this.db.close();}
   async backupTo(path: string): Promise<void> { await backup(this.db, path); }
@@ -193,7 +215,17 @@ export class HoleriteDatabase {
     const kind=input.kind??'monthly';
     if(!['monthly','vacation','thirteenth-first','thirteenth-second','termination'].includes(kind))throw new Error('Tipo de folha inválido.');
     if(original && original.kind!==kind)throw new Error('Não é possível alterar o tipo de uma folha existente.');
-    const calculation=kind==='monthly' ? calculatePayroll({salaryCents,competence:input.competence,dependents:employee.dependents,entries:input.entries,taxMode:input.taxMode}) :
+    // Point-first is a guided flow, not a blocker: only reviewed/imported/manual marks affect payroll.
+    const calculatedEntries=kind==='monthly'&&!original
+      ?[
+        ...input.entries.filter(entry=>!entry.id.startsWith('ponto-'+input.competence+'-')),
+        ...payrollEntriesFromPoint(input.competence,this.attendance.getSheet(employee.id,input.competence).summary,
+          this.attendance.getSheet(employee.id,input.competence).status==='closed'
+            ?this.attendance.getClosedSchedule(employee.id,input.competence)
+            :this.attendance.getSchedule(employee.id))
+      ]
+      :input.entries;
+    const calculation=kind==='monthly' ? calculatePayroll({salaryCents,competence:input.competence,dependents:employee.dependents,entries:calculatedEntries,taxMode:input.taxMode}) :
       calculateSpecialPayroll({salaryCents,competence:input.competence,admissionDate:employee.admissionDate,dependents:employee.dependents,entries:input.entries,taxMode:input.taxMode,kind,options:input.options??{}});
     const details: PayrollDetails = {...calculation,salaryCents,kind,options:input.options,employee:{...employee},company:{...company},competence:input.competence,taxMode:input.taxMode};
     const already=this.db.prepare('SELECT id FROM payrolls WHERE employee_id=? AND competence=? AND kind=?').get(employee.id,input.competence,kind) as Row | undefined;
@@ -226,7 +258,10 @@ export class HoleriteDatabase {
         const employee=this.employeeFrom(row);
         const existing=this.db.prepare("SELECT id FROM payrolls WHERE employee_id=? AND competence=? AND kind='monthly'").get(employee.id,competence);
         if(existing){skipped++;continue;}
-        this.savePayroll({employeeId:employee.id,competence,kind:'monthly',taxMode:input.taxMode,entries:employee.recurringEntries??[]});
+        const sheet=this.attendance.getSheet(employee.id,competence);
+        const schedule=sheet.status==='closed'?this.attendance.getClosedSchedule(employee.id,competence):this.attendance.getSchedule(employee.id);
+        const pointEntries=payrollEntriesFromPoint(competence,sheet.summary,schedule);
+        this.savePayroll({employeeId:employee.id,competence,kind:'monthly',taxMode:input.taxMode,entries:[...(employee.recurringEntries??[]),...pointEntries]});
         created++;
       }
       this.db.exec('COMMIT;');

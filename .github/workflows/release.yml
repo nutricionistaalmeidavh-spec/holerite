@@ -2,6 +2,8 @@ name: Publish Holerites Windows release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
 
@@ -14,6 +16,7 @@ concurrency:
 
 jobs:
   release:
+    if: ${{ startsWith(github.ref, 'refs/tags/v') || (github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'release: v')) }}
     runs-on: windows-latest
     steps:
       - name: Checkout completo para validar origem da tag
@@ -25,14 +28,38 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Validar versão e origem na main
+      - name: Validar versão e criar tag apenas em merge de release
         shell: pwsh
         run: |
           $version = node -p "require('./package.json').version"
-          if ("v$version" -ne $env:GITHUB_REF_NAME) {
-            throw "A tag deve corresponder à versão do package.json: v$version"
+          $tag = "v$version"
+          git fetch origin main --tags
+          if ($env:GITHUB_REF_TYPE -eq "branch") {
+            if ($env:GITHUB_REF_NAME -ne "main") { throw "A publicação exige a branch main." }
+            $subject = git log -1 --format=%s
+            if (-not $subject.StartsWith("release: $tag")) {
+              throw "O merge de publicação precisa ter o título: release: $tag"
+            }
+            $existingTag = @(git tag --list $tag)
+            if ($existingTag.Count -gt 0) {
+              $tagCommit = git rev-list -n 1 $tag
+              if ($tagCommit -ne $env:GITHUB_SHA) {
+                throw "A tag $tag já existe e aponta para outro commit."
+              }
+              Write-Host "A tag $tag já está neste commit; continuando a publicação."
+            } else {
+              git tag $tag $env:GITHUB_SHA
+              if ($LASTEXITCODE -ne 0) { throw "Falha ao criar a tag $tag." }
+              git push origin "refs/tags/$tag"
+              if ($LASTEXITCODE -ne 0) { throw "Falha ao enviar a tag $tag." }
+            }
+          } elseif ($env:GITHUB_REF_TYPE -eq "tag") {
+            if ($env:GITHUB_REF_NAME -ne $tag) {
+              throw "A tag deve corresponder à versão do package.json: $tag"
+            }
+          } else {
+            throw "Publicação permitida apenas a partir da main ou de uma tag."
           }
-          git fetch origin main
           git merge-base --is-ancestor $env:GITHUB_SHA origin/main
           if ($LASTEXITCODE -ne 0) {
             throw "A tag de release precisa apontar para um commit presente na main."
