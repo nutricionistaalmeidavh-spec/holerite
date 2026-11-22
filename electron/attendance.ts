@@ -14,7 +14,7 @@ export class AttendanceStore {
   constructor(private db:DatabaseSync){
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS time_configs (
-        company_id TEXT PRIMARY KEY REFERENCES companies(id),enabled INTEGER NOT NULL DEFAULT 0,
+        company_id TEXT PRIMARY KEY REFERENCES companies(id),enabled INTEGER NOT NULL DEFAULT 1,
         variation_minutes INTEGER NOT NULL DEFAULT 0,schedule_json TEXT NOT NULL, updated_at TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS time_employee_schedules (
@@ -48,6 +48,8 @@ export class AttendanceStore {
         created_at TEXT NOT NULL
       );
     `);
+    // Backwards-compatible migration of the opt-in version: point is now the core.
+    this.db.exec('UPDATE time_configs SET enabled=1 WHERE enabled<>1;');
   }
   private employee(id:string):Row {
     const value=this.db.prepare('SELECT * FROM employees WHERE id=?').get(requiredId(id)) as Row|undefined;
@@ -58,18 +60,19 @@ export class AttendanceStore {
     const company=this.db.prepare('SELECT id FROM companies WHERE id=?').get(requiredId(companyId));
     if(!company)throw new Error('Empresa não encontrada.');
     const row=this.db.prepare('SELECT * FROM time_configs WHERE company_id=?').get(companyId) as Row|undefined;
-    return row?{enabled:!!row.enabled,variationMinutes:Number(row.variation_minutes),schedule:json<WorkSchedule>(row.schedule_json)}:
-      {enabled:false,variationMinutes:0,schedule:defaultSchedule()};
+    return row?{enabled:true,variationMinutes:Number(row.variation_minutes),schedule:json<WorkSchedule>(row.schedule_json)}:
+      {enabled:true,variationMinutes:0,schedule:defaultSchedule()};
   }
   setConfig(companyId:string,config:TimeConfig):TimeConfig {
     const current=this.getConfig(companyId);
-    if(typeof config.enabled!=='boolean'||!Number.isInteger(config.variationMinutes)||
+    if(config.enabled!==true)throw new Error('Controle de ponto é o módulo principal e não pode ser desativado.');
+    if(!Number.isInteger(config.variationMinutes)||
        config.variationMinutes<0||config.variationMinutes>10)throw new Error('Configuração de ponto inválida.');
     const schedule=validateSchedule(config.schedule??current.schedule);
     this.db.prepare(`INSERT INTO time_configs(company_id,enabled,variation_minutes,schedule_json,updated_at)
       VALUES(?,?,?,?,?) ON CONFLICT(company_id) DO UPDATE SET enabled=excluded.enabled,
       variation_minutes=excluded.variation_minutes,schedule_json=excluded.schedule_json,updated_at=excluded.updated_at`
-    ).run(companyId,config.enabled?1:0,config.variationMinutes,JSON.stringify(schedule),now());
+    ).run(companyId,1,config.variationMinutes,JSON.stringify(schedule),now());
     return this.getConfig(companyId);
   }
   getSchedule(employeeId:string):WorkSchedule {
@@ -86,7 +89,7 @@ export class AttendanceStore {
     ).run(employeeId,JSON.stringify(schedule),now());
     return this.getSchedule(employeeId);
   }
-  private requireEnabled(companyId:string){if(!this.getConfig(companyId).enabled)throw new Error('Ative o módulo de ponto nas configurações da empresa.');}
+  private requireEnabled(companyId:string){this.getConfig(companyId);}
   private readDays(employeeId:string,competence:string):PointDay[] {
     return (this.db.prepare('SELECT * FROM time_days WHERE employee_id=? AND competence=? ORDER BY date')
       .all(employeeId,competence) as Row[]).map(row=>({
