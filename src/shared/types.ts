@@ -171,5 +171,7 @@ export interface HoleriteAPI {
   exportTimeMatrix(input:{companyId:string;competence:string;format:'csv'|'xlsx'|'template'}):Promise<boolean>;
   exportTimePDF(input:{employeeId:string;competence:string}):Promise<boolean>;
   printTimeSheet(input:{employeeId:string;competence:string}):Promise<boolean>;
+  exportTimeBatchPDF(input:{companyId:string;competence:string;employeeIds:string[]}):Promise<boolean>;
+  printTimeBatch(input:{companyId:string;competence:string;employeeIds:string[]}):Promise<boolean>;
 
 }
