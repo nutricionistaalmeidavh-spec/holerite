@@ -168,20 +168,42 @@ try {
   await screenshot('24-editar-empresa', 'Modal para editar empresa existente');
   await dialog.getByRole('button', {name:'Cancelar'}).click();
 
-  await page.setViewportSize({width:1024,height:768});
+  // P0/P1: verify the point module is truly optional and the manual + matrix flows work in Electron.
+  await go('Controle de ponto');
+  await screenshot('25-ponto-desativado', 'Controle de ponto desativado por padrão');
+  await page.locator('.time-module-toggle input').check();
+  await page.getByRole('tab', {name:'Ficha individual'}).waitFor();
+  await screenshot('26-ponto-ativado', 'Controle de ponto habilitado explicitamente');
+  await page.locator('.time-filters select').selectOption({index:1});
+  await page.getByRole('button', {name:'Criar ficha manual'}).waitFor();
+  await page.getByRole('button', {name:'Criar ficha manual'}).click();
+  await page.getByLabel('Entrada 2026-11-02', {exact:true}).fill('08:00');
+  await page.getByLabel('Saída almoço 2026-11-02', {exact:true}).fill('12:00');
+  await page.getByLabel('Volta almoço 2026-11-02', {exact:true}).fill('13:00');
+  await page.getByLabel('Saída 2026-11-02', {exact:true}).fill('17:00');
+  await page.getByRole('button', {name:/Salvar \d+ alteração/}).click();
+  await verifyNoAlert();
+  await screenshot('27-ponto-ficha-manual', 'Ficha manual com quatro marcações e auditoria');
+  await page.getByRole('tab', {name:'Matriz da equipe'}).click();
+  await page.getByText('Uma linha por funcionário/dia').waitFor();
+  await screenshot('28-ponto-matriz', 'Matriz mensal de ponto da equipe');
+  await page.getByRole('tab', {name:'Importar planilha'}).click();
+  await screenshot('29-ponto-importacao', 'Importação de ponto CSV/XLSX e modelo gratuito');
+    await page.setViewportSize({width:1024,height:768});
   for (const [label, name] of [
-    ['Visão geral', '25-compacto-dashboard'],
-    ['Empresas', '26-compacto-empresas'],
-    ['Funcionários', '27-compacto-funcionarios'],
-    ['Folha de pagamento', '28-compacto-folha'],
-    ['Histórico', '29-compacto-historico']
+    ['Visão geral', '30-compacto-dashboard'],
+    ['Empresas', '31-compacto-empresas'],
+    ['Funcionários', '32-compacto-funcionarios'],
+    ['Folha de pagamento', '33-compacto-folha'],
+    ['Histórico', '34-compacto-historico'],
+    ['Controle de ponto', '35-compacto-ponto']
   ]) {
     await go(label);
     await screenshot(name, 'Viewport compacto: ' + label);
   }
   await verifyNoAlert();
   assert.equal(issues.filter(issue => issue.startsWith('JS:')).length, 0, 'Exceções JavaScript encontradas.');
-  assert.equal(manifest.length, 29, 'Quantidade de capturas inferior ao esperado.');
+  assert.equal(manifest.length, 35, 'Quantidade de capturas inferior ao esperado.');
 } catch (error) {
   failure = error;
   console.error('QA VISUAL FALHOU:', error);
@@ -213,7 +235,7 @@ try {
     '',
     'Resultado: **' + report.status + '**',
     '',
-    'Capturas: **' + manifest.length + '/29**',
+    'Capturas: **' + manifest.length + '/35**',
     '',
     failure ? 'Erro: ' + String(failure) : 'Navegação, cadastros e estados da folha verificados.',
     '',
