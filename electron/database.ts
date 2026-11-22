@@ -1,6 +1,7 @@
 import { DatabaseSync, backup } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import {AttendanceStore} from './attendance';
+import {LocalAccess} from './access-control';
 import {payrollEntriesFromPoint} from '../src/shared/time';
 import { calculatePayroll } from '../src/shared/payroll';
 import {calculateSpecialPayroll} from '../src/shared/special';
@@ -27,6 +28,7 @@ const parseJSON = <T>(value: unknown): T => JSON.parse(String(value)) as T;
 export class HoleriteDatabase {
   private db: DatabaseSync;
   readonly attendance: AttendanceStore;
+  readonly access: LocalAccess;
   constructor(path: string) {
     this.db = new DatabaseSync(path, {timeout: 5000});
     this.db.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;');
@@ -54,6 +56,7 @@ export class HoleriteDatabase {
     this.migrateEmployeeProfiles();
     this.migrateOldPayrolls();
     this.attendance=new AttendanceStore(this.db);
+    this.access=new LocalAccess(this.db);
   }
   private migrateEmployeeProfiles() {
     // Migração aditiva: os cadastros e recibos antigos permanecem intocados.
