@@ -22,6 +22,7 @@ const api: HoleriteAPI = {
   getTimeMatrix: input => call('time-matrix',input),
   getTimeAudit: input => call('time-audit',input),
   autofillTimeSheet: input => call('time-autofill',input),
+  reviewTimeSuggestions: input => call('time-bulk-review',input),
   saveTimeMatrix: input => call('time-save-matrix',input),
   closeTimeSheet: input => call('time-close',input),
   reopenTimeSheet: input => call('time-reopen',input),
