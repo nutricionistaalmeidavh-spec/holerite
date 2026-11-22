@@ -29,11 +29,17 @@ test('monthly holerite is only started after checking and closing the point shee
   assert.throws(()=>db.savePayroll({employeeId:employee.id,competence:'2026-11',entries:[],taxMode:'automatic'}),/ponto|fechad/i);
   assert.throws(()=>db.generateMonthlyBatch({companyId:employee.companyId,competence:'2026-11',taxMode:'automatic'}),/ponto|fechad/i);
   const days=previewMonth('2026-11',defaultSchedule(),0).map(day=>day.kind==='work'?{...day,source:'manual' as const}:day);
+  days.find(day=>day.date==='2026-11-03')!.end='18:00';
   db.attendance.saveMatrix(days.map(day=>({employeeId:employee.id,competence:'2026-11',day})));
   db.attendance.close(employee.id,'2026-11');
-  const record=db.applyTimeToPayroll(employee.id,'2026-11');
+  // Even a direct monthly-editor submission cannot silently omit the closed point results.
+  const record=db.savePayroll({employeeId:employee.id,competence:'2026-11',entries:[],taxMode:'automatic'});
   assert.equal(record.kind,'monthly');
   assert.equal(record.employeeId,employee.id);
+  assert.equal(record.details.items.filter(item=>item.code==='HEXTRA').length,1);
+  const linked=db.applyTimeToPayroll(employee.id,'2026-11');
+  assert.equal(linked.id,record.id);
+  assert.equal(linked.details.items.filter(item=>item.code==='HEXTRA').length,1);
   db.close();
 });
 test('monthly timesheet persists manual marks, preserves edits when regenerating suggestions and closes',()=>{
