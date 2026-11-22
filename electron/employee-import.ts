@@ -6,26 +6,14 @@ import type {EmployeeInput} from '../src/shared/types';
 import {HoleriteDatabase} from './database';
 import {parseImportDate} from './time-import';
 
-export type EmployeeImportField='name'|'cpf'|'registration'|'role'|'admissionDate'|'salary'|'dependents'|'active'|'sector'|'jobSite'|'costCenter'|'pis'|'workHours';
+import {EMPLOYEE_IMPORT_COLUMNS} from '../src/shared/employee-import-fields';
+import type {EmployeeImportField} from '../src/shared/employee-import-fields';
+export {EMPLOYEE_IMPORT_COLUMNS} from '../src/shared/employee-import-fields';
+export type {EmployeeImportField} from '../src/shared/employee-import-fields';
 export type EmployeeImportMapping=Partial<Record<EmployeeImportField,string>>;
 export interface EmployeeImportChoice {token:string;filename:string;count:number;headers:string[];suggestedMapping:EmployeeImportMapping;}
 export interface EmployeeImportPreview {created:number;skipped:number;errors:string[];samples:Array<{name:string;cpf:string;registration:string;role:string;admissionDate:string}>;}
 type Pending={companyId:string;filename:string;headers:string[];rows:Array<Record<string,unknown>>};
-export const EMPLOYEE_IMPORT_COLUMNS:ReadonlyArray<{key:EmployeeImportField;label:string;aliases:string[]}>= [
-  {key:'name',label:'Nome completo *',aliases:['nome','nome completo','funcionário','funcionario','colaborador']},
-  {key:'cpf',label:'CPF',aliases:['cpf','documento']},
-  {key:'registration',label:'Matrícula',aliases:['matrícula','matricula','registro']},
-  {key:'role',label:'Cargo *',aliases:['cargo','função','funcao']},
-  {key:'admissionDate',label:'Admissão *',aliases:['admissão','admissao','data de admissão','data admissao']},
-  {key:'salary',label:'Salário mensal (R$) *',aliases:['salário','salario','salário mensal','salario base','salario mensal','salário-base']},
-  {key:'dependents',label:'Dependentes',aliases:['dependentes','dependentes irrf']},
-  {key:'active',label:'Situação',aliases:['situação','situacao','ativo','status']},
-  {key:'sector',label:'Setor',aliases:['setor','departamento']},
-  {key:'jobSite',label:'Obra/local de trabalho',aliases:['obra','local de trabalho']},
-  {key:'costCenter',label:'Centro de custo',aliases:['centro de custo','centro custo']},
-  {key:'pis',label:'PIS/NIS',aliases:['pis','nis','pis/nis']},
-  {key:'workHours',label:'Jornada contratual',aliases:['jornada','jornada contratual','horas semanais']}
-];
 const normalize=(v:string)=>v.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');
 function asText(value:unknown):string {
   if(value===null||value===undefined)return '';
