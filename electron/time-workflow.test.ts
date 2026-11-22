@@ -2,6 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {HoleriteDatabase} from './database';
 import {defaultSchedule,previewMonth} from '../src/shared/time';
+import {DatabaseSync} from 'node:sqlite';
+import {mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 
 const setup=()=>{
   const db=new HoleriteDatabase(':memory:');
@@ -65,4 +69,25 @@ test('closed point merges only into monthly draft, idempotently, preserving recu
   db.finalizePayroll(slip.id);
   assert.throws(()=>db.applyTimeToPayroll(employee.id,'2026-11'),/finalizado/i);
   db.close();
+});
+
+test('upgrading a database with disabled legacy opt-in enables point without losing schedule settings',()=>{
+  const dir=mkdtempSync(join(tmpdir(),'point-core-'));
+  const path=join(dir,'database.sqlite');
+  try{
+    const db=new HoleriteDatabase(path);
+    const company=db.saveCompany({legalName:'Obras',tradeName:'',cnpj:'',address:''});
+    const employee=db.saveEmployee({companyId:company.id,name:'Trabalhador',cpf:'',role:'Auxiliar',
+      admissionDate:'2026-01-01',salaryCents:220000,dependents:0,active:true});
+    db.attendance.setConfig(company.id,{enabled:true,variationMinutes:7,schedule:defaultSchedule()});
+    db.close();
+    const legacy=new DatabaseSync(path);
+    legacy.prepare('UPDATE time_configs SET enabled=0 WHERE company_id=?').run(company.id);
+    legacy.close();
+    const upgraded=new HoleriteDatabase(path);
+    assert.equal(upgraded.attendance.getConfig(company.id).enabled,true);
+    assert.equal(upgraded.attendance.getConfig(company.id).variationMinutes,7);
+    assert.equal(upgraded.attendance.getSheet(employee.id,'2026-11').status,'draft');
+    upgraded.close();
+  }finally{rmSync(dir,{recursive:true,force:true});}
 });
