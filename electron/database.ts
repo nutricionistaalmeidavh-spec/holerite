@@ -213,6 +213,18 @@ export class HoleriteDatabase {
       registration,pis,workHours,bankName,bankBranch,bankAccount,pixKey,JSON.stringify(recurringEntries),sector,jobSite,costCenter);
     return this.getEmployee(id);
   }
+  importEmployeeBatch(rows: EmployeeInput[]): number {
+    if(!Array.isArray(rows)||rows.length>30000)throw new Error('Lote de funcionários inválido.');
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      for(const row of rows)this.saveEmployee(row);
+      this.db.exec('COMMIT');
+      return rows.length;
+    }catch(error){
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
   savePayroll(input: PayrollInput): PayrollRecord {
     if (!input || typeof input !== 'object') throw new Error('Dados da folha inválidos.');
     const employee=this.getEmployee(required(input.employeeId,'Funcionário',50));
