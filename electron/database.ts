@@ -220,7 +220,14 @@ export class HoleriteDatabase {
     // a closed attendance period; preserve editing old drafts created before the pivot.
     if(kind==='monthly'&&!original&&this.attendance.getSheet(employee.id,input.competence).status!=='closed')
       throw new Error('Feche e confira a ficha de ponto antes de gerar o holerite mensal.');
-    const calculation=kind==='monthly' ? calculatePayroll({salaryCents,competence:input.competence,dependents:employee.dependents,entries:input.entries,taxMode:input.taxMode}) :
+    const calculatedEntries=kind==='monthly'&&!original
+      ?[
+        ...input.entries.filter(entry=>!entry.id.startsWith('ponto-'+input.competence+'-')),
+        ...payrollEntriesFromPoint(input.competence,this.attendance.getSheet(employee.id,input.competence).summary,
+          this.attendance.getClosedSchedule(employee.id,input.competence))
+      ]
+      :input.entries;
+    const calculation=kind==='monthly' ? calculatePayroll({salaryCents,competence:input.competence,dependents:employee.dependents,entries:calculatedEntries,taxMode:input.taxMode}) :
       calculateSpecialPayroll({salaryCents,competence:input.competence,admissionDate:employee.admissionDate,dependents:employee.dependents,entries:input.entries,taxMode:input.taxMode,kind,options:input.options??{}});
     const details: PayrollDetails = {...calculation,salaryCents,kind,options:input.options,employee:{...employee},company:{...company},competence:input.competence,taxMode:input.taxMode};
     const already=this.db.prepare('SELECT id FROM payrolls WHERE employee_id=? AND competence=? AND kind=?').get(employee.id,input.competence,kind) as Row | undefined;
