@@ -157,7 +157,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
       if(request.scope==='individual'){
         if(!request.employeeId||request.employeeId!==employeeId)throw new Error('Funcionário alterado. Abra a ficha novamente.');
         await saveDays();
-        const result=await window.holerites.autofillTimeSheet({employeeId:request.employeeId,competence:request.competence});
+        await window.holerites.autofillTimeSheet({employeeId:request.employeeId,competence:request.competence});
         if(includeInCalculation){
           const reviewed=await window.holerites.reviewTimeSuggestions({employeeIds:[request.employeeId],competence:request.competence});
           await loadSheet();
