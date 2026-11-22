@@ -91,3 +91,9 @@ nav{display:flex;flex-direction:column;gap:4px}.nav-link{border:0;background:tra
 .time-import-errors{max-height:165px;overflow:auto;color:#b42318;background:#fff5f5;padding:12px 28px;border-radius:8px}
 .time-legal{font-size:12px!important;color:#68788d!important}
 @media(max-width:750px){.time-page .card{padding:13px}.time-settings-bar{align-items:flex-start;flex-direction:column}.time-toolbar{gap:6px}.time-toolbar .btn{font-size:12px}}
+
+/* Jornada é a entrada do produto: progressão clara até o recibo. */
+.time-steps{display:flex;gap:8px;flex-wrap:wrap;list-style:none;padding:0;margin:12px 0 0}
+.time-steps li{padding:8px 10px;border:1px solid #d7e1ef;border-radius:9px;background:#f1f5fb;color:#344a6d;font-size:12px;font-weight:650}
+.time-steps li:last-child{background:#e8efff;color:#294ec3;border-color:#bdcdf7}
+@media(max-width:700px){.time-steps{gap:5px}.time-steps li{font-size:11px;padding:7px}}
