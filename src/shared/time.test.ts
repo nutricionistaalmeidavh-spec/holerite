@@ -42,3 +42,17 @@ test('configurable suggested variation is deterministic, never a recorded punch'
   assert.ok(first.every(row=>row.source==='suggested'));
   assert.equal(assessMonth(first,schedule,300000).overtimeCents,0);
 });
+
+test('bank of hours offsets shortfall without charging the same minutes in payroll',()=>{
+  const schedule={...defaultSchedule(),overtimeDestination:'bank' as const};
+  const days=[
+    {date:'2026-11-03',kind:'work' as const,source:'manual' as const,start:'08:00',breakStart:'12:00',breakEnd:'13:00',end:'18:00',notes:''},
+    {date:'2026-11-04',kind:'work' as const,source:'manual' as const,start:'08:15',breakStart:'12:00',breakEnd:'13:00',end:'17:00',notes:''},
+    {date:'2026-11-05',kind:'absence' as const,source:'manual' as const,start:'',breakStart:'',breakEnd:'',end:'',notes:'Falta'}
+  ];
+  const summary=assessMonth(days,schedule,300000);
+  assert.equal(summary.bankMinutes,45);
+  assert.equal(summary.overtimeCents,0);
+  assert.equal(summary.deficitCents,Math.round(480*300000/(220*60)));
+  assert.ok(!payrollEntriesFromPoint('2026-11',summary,schedule).some(row=>row.code==='HEXTRA'));
+});
