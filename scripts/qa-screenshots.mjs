@@ -126,6 +126,7 @@ try {
   await page.locator('.time-filters select').selectOption({index:1});
   await page.getByRole('button', {name:'Gerar calendário sugerido'}).click();
   const confirmWorkday=page.getByRole('button',{name:'Conferir',exact:true});
+  await confirmWorkday.first().waitFor({state:'visible'});
   let confirmed=0;
   while(await confirmWorkday.count()){
     await confirmWorkday.first().click();
