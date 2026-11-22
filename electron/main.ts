@@ -144,6 +144,139 @@ function bindIPC() {
   });
   bind('time-export-pdf',(v:any)=>printTime(v.employeeId,v.competence,'pdf'));
   bind('time-print',(v:any)=>printTime(v.employeeId,v.competence,'print'));
+  bind('time-export-report',async(v:any)=>{
+    const result=await dialog.showSaveDialog(mainWindow!,{title:'Exportar indicadores de ponto',defaultPath:'Indicadores-Ponto-'+v.competence+'.csv',filters:[{name:'CSV',extensions:['csv']}]});
+    if(result.canceled||!result.filePath)return false;
+    const people=new Map(storage.snapshot().employees.map(e=>[e.id,e]));
+    const sheets=storage.attendance.matrix(v.companyId,v.competence);
+    const rows=[['Funcionário','Setor','Obra','Centro de custo','Competência','Horas trabalhadas','Horas extras','Horas noturnas','Minutos atraso','Faltas','Saldo banco minutos','DSR estimado R(v.companyId,v.competence,v.employeeIds??[],'pdf'));
+  bind('time-print-batch',(v:any)=>printTimeBatch(v.companyId,v.competence,v.employeeIds??[],'print'));
+  bind('export-backup',async()=>{
+    const result=await dialog.showSaveDialog(mainWindow!,{title:'Backup da base local',defaultPath:`ArtiSys-Holerites-backup-${new Date().toISOString().slice(0,10)}.sqlite`,filters:[{name:'SQLite',extensions:['sqlite']}]});
+    if(result.canceled || !result.filePath) return false;
+    // Backup online consistente, inclusive se o arquivo estiver em WAL.
+    await storage.backupTo(result.filePath);
+    return true;
+  });
+  bind('export-csv',async()=>{
+    const result=await dialog.showSaveDialog(mainWindow!,{title:'Exportar resumo da folha',defaultPath:'holerites.csv',filters:[{name:'CSV',extensions:['csv']}]});
+    if(result.canceled || !result.filePath) return false;
+    const records=storage.snapshot().payrolls;
+    const quote=(s:unknown)=>'"'+String(s??'').replace(/"/g,'""')+'"';
+    const rows=[['Competência','Empresa','Funcionário','CPF','Status','Bruto','Descontos','Líquido'],...records.map(p=>[p.competence,p.details.company.legalName,p.details.employee.name,p.details.employee.cpf,p.status,p.details.totals.grossCents/100,p.details.totals.deductionCents/100,p.details.totals.netCents/100])];
+    await writeFile(result.filePath,'\uFEFF'+rows.map(r=>r.map(quote).join(';')).join('\r\n'),'utf8');
+    return true;
+  });
+}
+async function createMain() {
+  mainWindow=new BrowserWindow({title:'ArtiSys Holerites',width:1380,height:900,minWidth:1024,minHeight:680,backgroundColor:'#f5f7fb',show:false,
+    webPreferences:{preload:join(__dirname,'preload.js'),sandbox:true,contextIsolation:true,nodeIntegration:false,webSecurity:true}});
+  mainWindow.webContents.setWindowOpenHandler(()=>({action:'deny'}));
+  mainWindow.once('ready-to-show',()=>mainWindow?.show());
+  if(app.isPackaged) await mainWindow.loadFile(join(__dirname,'../dist/index.html'));
+  else await mainWindow.loadURL('http://127.0.0.1:5173');
+}
+
+function checkUpdatesAtStartup() {
+  const check = registerUpdateFlow(
+    {packaged: app.isPackaged, platform: process.platform},
+    {
+      configureManual: () => {
+        autoUpdater.autoDownload = false;
+        autoUpdater.autoInstallOnAppQuit = false;
+        autoUpdater.allowPrerelease = false;
+        autoUpdater.on('download-progress', progress => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.setProgressBar(Math.max(0, Math.min(1, progress.percent / 100)));
+          }
+        });
+      },
+      onAvailable: listener => { autoUpdater.on('update-available', listener); },
+      onDownloaded: listener => {
+        autoUpdater.on('update-downloaded', info => {
+          if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setProgressBar(-1);
+          void listener(info);
+        });
+      },
+      onError: listener => {
+        autoUpdater.on('error', error => {
+          if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setProgressBar(-1);
+          listener(error);
+        });
+      },
+      check: () => autoUpdater.checkForUpdates(),
+      download: () => autoUpdater.downloadUpdate(),
+      install: () => autoUpdater.quitAndInstall(false, true)
+    },
+    {
+      confirmDownload: async version => {
+        const window = mainWindow;
+        if (!window || window.isDestroyed()) return false;
+        const choice = await dialog.showMessageBox(window, {
+          type: 'info',
+          title: 'Atualização disponível',
+          message: `ArtiSys Holerites ${version} está disponível.`,
+          detail: `Versão instalada: ${app.getVersion()}. Deseja baixar a atualização agora?`,
+          buttons: ['Baixar atualização', 'Agora não'],
+          defaultId: 0,
+          cancelId: 1,
+          noLink: true
+        });
+        return choice.response === 0;
+      },
+      confirmInstall: async version => {
+        const window = mainWindow;
+        if (!window || window.isDestroyed()) return false;
+        const choice = await dialog.showMessageBox(window, {
+          type: 'info',
+          title: 'Atualização pronta',
+          message: `ArtiSys Holerites ${version} foi baixado.`,
+          detail: 'Para instalar, o aplicativo será fechado e reaberto. Seus dados locais serão preservados.',
+          buttons: ['Instalar agora', 'Depois'],
+          defaultId: 0,
+          cancelId: 1,
+          noLink: true
+        });
+        return choice.response === 0;
+      },
+      downloadFailed: async () => {
+        const window = mainWindow;
+        if (!window || window.isDestroyed()) return;
+        await dialog.showMessageBox(window, {
+          type: 'warning',
+          title: 'Atualização não baixada',
+          message: 'Não foi possível baixar a atualização.',
+          detail: 'Confira sua conexão e tente novamente na próxima abertura. O sistema continua funcionando normalmente.',
+          buttons: ['OK'],
+          noLink: true
+        });
+      }
+    }
+  );
+  void check();
+}
+
+app.whenReady().then(async()=>{
+  const directory=app.getPath('userData');
+  await mkdir(directory,{recursive:true});
+  storage=new HoleriteDatabase(join(directory,'holerites.sqlite'));
+  timeImporter=new TimeImporter(storage.attendance,()=>storage.snapshot().employees);
+  bindIPC();
+  await createMain();
+  checkUpdatesAtStartup();
+  app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0) void createMain();});
+}).catch(err=>{dialog.showErrorBox('Erro ao iniciar ArtiSys Holerites',String(err));app.quit();});
+app.on('window-all-closed',()=>{if(process.platform!=='darwin') app.quit();});
+app.on('before-quit',()=>{storage?.close();});
+],
+      ...sheets.map(s=>{
+        const p=people.get(s.employeeId);
+        return [s.employeeName,p?.sector||'',p?.jobSite||'',p?.costCenter||'',s.competence,String(s.summary.workedMinutes),String(s.summary.overtimeMinutes),String(s.summary.nightMinutes),String(s.summary.lateMinutes),String(s.summary.absences),String(s.summary.bankMinutes),String((s.summary.dsrCents??0)/100)];
+      })];
+    const quote=(v:string)=>'"'+(/^[=+@\\-\\t\\r]/.test(v)?"'"+v:v).replace(/"/g,'""')+'"';
+    await writeFile(result.filePath,'\\uFEFF'+rows.map(r=>r.map(quote).join(';')).join('\\r\\n'),'utf8');
+    return true;
+  });
   bind('time-export-batch-pdf',(v:any)=>printTimeBatch(v.companyId,v.competence,v.employeeIds??[],'pdf'));
   bind('time-print-batch',(v:any)=>printTimeBatch(v.companyId,v.competence,v.employeeIds??[],'print'));
   bind('export-backup',async()=>{
