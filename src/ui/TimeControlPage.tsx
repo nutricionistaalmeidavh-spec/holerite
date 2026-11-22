@@ -3,7 +3,7 @@ import type {Employee} from '../shared/types';
 import type {TimeConfig,TimeSheet,MatrixChange} from '../../electron/attendance';
 import type {ImportChoice,ImportMapping,ImportPreview,ImportField} from '../../electron/time-import';
 import type {PointDay,WorkSchedule} from '../shared/time';
-import {defaultSchedule,previewMonth,workedMinutes} from '../shared/time';
+import {defaultSchedule,previewMonth,workedMinutes,diagnosePointDays} from '../shared/time';
 
 const kindLabels:Record<PointDay['kind'],string>={
   work:'Trabalho',absence:'Falta',vacation:'Férias',holiday:'Feriado',rest:'Folga',leave:'Afastamento'
@@ -24,7 +24,7 @@ function actualHours(day:PointDay):string {
   try{return duration(workedMinutes(day));}catch{return '—';}
 }
 const weekdays=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
-type View='individual'|'matrix'|'import'|'settings';
+type View='individual'|'matrix'|'import'|'settings'|'reports';
 type GenerationRequest={scope:'individual'|'team';companyId:string;competence:string;employeeId?:string};
 
 export function TimeControlPage({companyId,competence,employees,onPayrollUpdated,initialEmployeeId=''}:{
@@ -41,6 +41,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
   const [matrixDrafts,setMatrixDrafts]=useState<Record<string,PointDay>>({});
   const [selectedForPrint,setSelectedForPrint]=useState<string[]>([]);
   const [filter,setFilter]=useState('');
+  const [reportFilter,setReportFilter]=useState('');
   const [page,setPage]=useState(0);
   const [importChoice,setImportChoice]=useState<ImportChoice|null>(null);
   const [mapping,setMapping]=useState<ImportMapping>({});
@@ -83,7 +84,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
   useEffect(()=>{let active=true;if(!employeeId||!ready){setSheet(null);setDays([]);return;}
     loadSheet().catch(e=>{if(active)setError(String(e));});return()=>{active=false;};
   },[loadSheet,employeeId,ready]);
-  useEffect(()=>{if(view==='matrix'&&ready)loadMatrix().catch(e=>setError(String(e)));},[view,loadMatrix,ready]);
+  useEffect(()=>{if((view==='matrix'||view==='reports')&&ready)loadMatrix().catch(e=>setError(String(e)));},[view,loadMatrix,ready]);
   const changeDay=(date:string,patch:Partial<PointDay>)=>{
     setDays(rows=>rows.map(day=>{
       if(day.date!==date)return day;
@@ -93,6 +94,12 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
     }));
   };
   const selected=activeEmployees.find(e=>e.id===employeeId);
+  const sheetIssues=useMemo(()=>diagnosePointDays(days),[days]);
+  const matrixIssues=useMemo(()=>matrix.flatMap(s=>diagnosePointDays(s.days).map(issue=>({...issue,employeeId:s.employeeId,employeeName:s.employeeName}))),[matrix]);
+  const reportRows=useMemo(()=>matrix.filter(s=>{
+    const employee=activeEmployees.find(e=>e.id===s.employeeId);
+    return [s.employeeName,employee?.sector,employee?.jobSite,employee?.costCenter].some(value=>(value||'').toLowerCase().includes(reportFilter.toLowerCase()));
+  }),[matrix,activeEmployees,reportFilter]);
   const changedDays=days.filter(day=>JSON.stringify(day)!==JSON.stringify(sheet?.days.find(old=>old.date===day.date)));
   const saveDays=async()=>{
     if(!sheet||!changedDays.length)return;
@@ -207,7 +214,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
     {notice&&<div className="success-banner" role="status">{notice}</div>}
     {ready&&<>
       <div className="time-toolbar" role="tablist" aria-label="Áreas do controle de ponto">
-        {([['individual','Ficha individual'],['matrix','Matriz da equipe'],['import','Importar planilha'],['settings','Configurações']] as [View,string][]).map(([v,label])=>
+        {([['individual','Ficha individual'],['matrix','Matriz da equipe'],['import','Importar planilha'],['reports','Relatórios'],['settings','Configurações']] as [View,string][]).map(([v,label])=>
           <button key={v} className={'btn '+(view===v?'btn-primary':'btn-secondary')} aria-selected={view===v} role="tab"
             onClick={()=>setView(v)}>{label}</button>)}
       </div>
@@ -225,6 +232,22 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
             setConfig(old=>old?{...old,schedule:{...old.schedule,nightPercent:Number(e.target.value)}}:old)}/></label>
           <label className="field"><span>Tolerância atrasos (min)</span><input type="number" min="0" max="60" value={config.schedule.toleranceMinutes} onChange={e=>
             setConfig(old=>old?{...old,schedule:{...old.schedule,toleranceMinutes:Number(e.target.value)}}:old)}/></label>
+
+          <label className="field"><span>Extra em domingos (%)</span><input type="number" min="0" max="300" value={config.schedule.sundayOvertimePercent??config.schedule.overtimePercent}
+            onChange={e=>setConfig(old=>old?{...old,schedule:{...old.schedule,sundayOvertimePercent:Number(e.target.value)}}:old)}/></label>
+          <label className="field"><span>Extra em feriados (%)</span><input type="number" min="0" max="300" value={config.schedule.holidayOvertimePercent??config.schedule.overtimePercent}
+            onChange={e=>setConfig(old=>old?{...old,schedule:{...old.schedule,holidayOvertimePercent:Number(e.target.value)}}:old)}/></label>
+          <label className="field"><span>Escala</span><select value={config.schedule.cycle?'cycle':'weekly'} onChange={e=>setConfig(old=>old?{...old,schedule:{...old.schedule,cycle:e.target.value==='cycle'?(old.schedule.cycle??{workDays:1,restDays:1,anchorDate:competence+'-01'}):undefined}}:old)}>
+            <option value="weekly">Semanal por dias</option><option value="cycle">Ciclo rotativo (12x36 / 6x1 / 5x1)</option>
+          </select></label>
+          {config.schedule.cycle&&<>
+            <label className="field"><span>Dias de trabalho no ciclo</span><input type="number" min="1" max="30" value={config.schedule.cycle.workDays} onChange={e=>setConfig(old=>old&&old.schedule.cycle?{...old,schedule:{...old.schedule,cycle:{...old.schedule.cycle,workDays:Number(e.target.value)}}}:old)}/></label>
+            <label className="field"><span>Dias de folga no ciclo</span><input type="number" min="1" max="30" value={config.schedule.cycle.restDays} onChange={e=>setConfig(old=>old&&old.schedule.cycle?{...old,schedule:{...old.schedule,cycle:{...old.schedule.cycle,restDays:Number(e.target.value)}}}:old)}/></label>
+            <label className="field"><span>Primeiro dia de trabalho do ciclo</span><input type="date" value={config.schedule.cycle.anchorDate} onChange={e=>setConfig(old=>old&&old.schedule.cycle?{...old,schedule:{...old.schedule,cycle:{...old.schedule.cycle,anchorDate:e.target.value}}}:old)}/></label>
+          </>}
+          <label className="field"><span>Feriados estaduais/municipais (AAAA-MM-DD separados por vírgula)</span><input placeholder="2026-07-09, 2026-12-08" value={(config.schedule.holidayDates??[]).join(', ')} onChange={e=>setConfig(old=>old?{...old,schedule:{...old.schedule,holidayDates:e.target.value.split(',').map(s=>s.trim()).filter(Boolean)}}:old)}/></label>
+          <label className="field"><span>Redução da hora noturna</span><select value={config.schedule.nightHourReduction?'yes':'no'} onChange={e=>setConfig(old=>old?{...old,schedule:{...old.schedule,nightHourReduction:e.target.value==='yes'}}:old)}><option value="no">Desativada (histórico)</option><option value="yes">52min30s (configurável por empresa)</option></select></label>
+          <label className="field"><span>DSR estimado sobre extras</span><select value={config.schedule.dsrOnOvertime?'yes':'no'} onChange={e=>setConfig(old=>old?{...old,schedule:{...old.schedule,dsrOnOvertime:e.target.value==='yes'}}:old)}><option value="no">Desativado</option><option value="yes">Ativado (requer revisão do DP)</option></select></label>
           <label className="field"><span>Destino das extras</span><select value={config.schedule.overtimeDestination} onChange={e=>
             setConfig(old=>old?{...old,schedule:{...old.schedule,overtimeDestination:e.target.value as 'bank'|'pay'}}:old)}>
             <option value="pay">Pagar na folha</option><option value="bank">Banco de horas</option></select></label>
@@ -241,6 +264,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
         {!employeeId?<p>Selecione um funcionário para preencher ou importar a jornada, conferir e fechar a ficha. O holerite é gerado depois.</p>:sheet&&<>
           <div className="time-status"><span>{selected?.name} · {sheet.status==='closed'?'Fechada':'Rascunho'}</span>
             <small>Trabalhadas {duration(sheet.summary.workedMinutes)} | Extras {duration(sheet.summary.overtimeMinutes)} | Déficit {duration(sheet.summary.deficitMinutes)} | Noturnas {duration(sheet.summary.nightMinutes)} | Saldo banco {bankBalance<0?'-':'+'}{duration(bankBalance)}</small></div>
+          {sheetIssues.length>0&&<details className="time-audit"><summary>Conferências recomendadas: {sheetIssues.length} aviso(s), sem impedimento</summary><ul>{sheetIssues.slice(0,35).map((issue,i)=><li key={i}>{dayText(issue.date)} · {issue.message}</li>)}</ul></details>}
           <div className="time-mini-config"><strong>Jornada deste funcionário</strong>
             {fields.map(field=><label key={field}>{timeLabel[field]}<input type="time" value={schedule[field]} disabled={sheet.status==='closed'} onChange={e=>setScheduleField(field,e.target.value)}/></label>)}
             <button className="btn btn-secondary" disabled={busy||sheet.status==='closed'} onClick={()=>void run(saveSchedule)}>Salvar jornada</button></div>
@@ -309,6 +333,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
           <div className="time-weekdays">{matrix.map(s=><label key={s.employeeId}><input type="checkbox" checked={selectedForPrint.includes(s.employeeId)}
             onChange={e=>setSelectedForPrint(current=>e.target.checked?[...current,s.employeeId]:current.filter(id=>id!==s.employeeId))}/>{s.employeeName}</label>)}</div>
         </details>
+        {matrixIssues.length>0&&<details className="time-audit"><summary>Conferência da equipe: {matrixIssues.length} aviso(s), sem bloquear a apuração</summary><ul>{matrixIssues.slice(0,70).map((issue,i)=><li key={i}>{issue.employeeName} · {dayText(issue.date)} · {issue.message}</li>)}</ul></details>}
         <input placeholder="Filtrar por nome ou data" aria-label="Buscar na matriz" value={filter} onChange={e=>{setFilter(e.target.value);setPage(0);}}/>
         <div className="table-scroll time-table"><table className="data-table"><thead><tr>
           <th>Funcionário</th><th>Data</th><th>Tipo</th><th>Entrada</th><th>Saída almoço</th><th>Retorno</th><th>Saída</th><th>Horas reais</th><th>Observações</th>
@@ -331,6 +356,19 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
         <div className="time-pagination"><span>{matrixRows.length} dias · Página {page+1} de {Math.max(1,Math.ceil(matrixRows.length/100))}</span>
           <button className="btn btn-secondary" disabled={page===0} onClick={()=>setPage(p=>p-1)}>Anterior</button>
           <button className="btn btn-secondary" disabled={(page+1)*100>=matrixRows.length} onClick={()=>setPage(p=>p+1)}>Próxima</button></div>
+      </section>}
+
+      {view==='reports'&&<section className="card time-sheet">
+        <div className="time-actions"><h2>Relatórios de ponto e indicadores</h2>
+          <button className="btn btn-secondary" disabled={busy||!matrix.length} onClick={()=>void run(async()=>{await window.holerites.exportTimeReport({companyId,competence});})}>Exportar indicadores CSV</button>
+        </div>
+        <p>Indicadores calculados a partir das fichas salvas. Horários apenas sugeridos não entram na apuração; avisos não bloqueiam o trabalho.</p>
+        <input value={reportFilter} onChange={e=>setReportFilter(e.target.value)} aria-label="Filtrar relatórios" placeholder="Filtrar por funcionário, obra, setor ou centro de custo"/>
+        <div className="time-status"><span>{reportRows.length} funcionário(s) · {reportRows.reduce((v,s)=>v+s.summary.absences,0)} falta(s) · {matrixIssues.length} aviso(s)</span>
+          <small>Trabalhadas {duration(reportRows.reduce((v,s)=>v+s.summary.workedMinutes,0))} | Extras {duration(reportRows.reduce((v,s)=>v+s.summary.overtimeMinutes,0))} | Atrasos {duration(reportRows.reduce((v,s)=>v+s.summary.lateMinutes,0))}</small></div>
+        <div className="table-scroll time-table"><table className="data-table"><thead><tr><th>Funcionário</th><th>Setor</th><th>Obra</th><th>Centro de custo</th><th>Trabalhadas</th><th>Extras</th><th>Noturnas</th><th>Atrasos</th><th>Faltas</th><th>Status</th></tr></thead>
+          <tbody>{reportRows.map(s=>{const employee=activeEmployees.find(e=>e.id===s.employeeId);return <tr key={s.employeeId}><td>{s.employeeName}</td><td>{employee?.sector||'—'}</td><td>{employee?.jobSite||'—'}</td><td>{employee?.costCenter||'—'}</td><td>{duration(s.summary.workedMinutes)}</td><td>{duration(s.summary.overtimeMinutes)}</td><td>{duration(s.summary.nightMinutes)}</td><td>{duration(s.summary.lateMinutes)}</td><td>{s.summary.absences}</td><td>{s.status==='closed'?'Fechado':'Aberto'}</td></tr>;})}</tbody>
+        </table></div>
       </section>}
       {view==='import'&&<section className="card time-sheet">
         <h2>Importar ficha de ponto CSV / Excel</h2>
