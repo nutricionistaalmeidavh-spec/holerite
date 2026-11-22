@@ -39,6 +39,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
   const [view,setView]=useState<View>('individual');
   const [matrix,setMatrix]=useState<Array<TimeSheet&{employeeName:string}>>([]);
   const [matrixDrafts,setMatrixDrafts]=useState<Record<string,PointDay>>({});
+  const [selectedForPrint,setSelectedForPrint]=useState<string[]>([]);
   const [filter,setFilter]=useState('');
   const [page,setPage]=useState(0);
   const [importChoice,setImportChoice]=useState<ImportChoice|null>(null);
@@ -296,10 +297,18 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
               await loadMatrix();if(employeeId)await loadSheet();
               setNotice(result.reviewed+' dias de '+result.employees+' funcionário(s) conferidos em lote.');
             })}>Conferir equipe em lote</button>
+
+          <button className="btn btn-secondary" disabled={busy||!matrix.length} onClick={()=>void run(async()=>{await saveMatrix();await window.holerites.exportTimeBatchPDF({companyId,competence,employeeIds:selectedForPrint});})}>PDF fichas em lote</button>
+          <button className="btn btn-secondary" disabled={busy||!matrix.length} onClick={()=>void run(async()=>{await saveMatrix();await window.holerites.printTimeBatch({companyId,competence,employeeIds:selectedForPrint});})}>Imprimir equipe</button>
           <button className="btn btn-secondary" disabled={busy} onClick={()=>void run(async()=>{await window.holerites.exportTimeMatrix({companyId,competence,format:'xlsx'});})}>Exportar Excel</button>
           <button className="btn btn-secondary" disabled={busy} onClick={()=>void run(async()=>{await window.holerites.exportTimeMatrix({companyId,competence,format:'csv'});})}>Exportar CSV</button>
         </div>
+
         <p>Uma linha por funcionário/dia. Cole do Excel, salve ajustes e confira em lote as sugestões geradas para a equipe. A assinatura será feita no documento impresso.</p>
+        <details className="time-audit"><summary>Selecionar funcionários para impressão (nenhum selecionado = todos)</summary>
+          <div className="time-weekdays">{matrix.map(s=><label key={s.employeeId}><input type="checkbox" checked={selectedForPrint.includes(s.employeeId)}
+            onChange={e=>setSelectedForPrint(current=>e.target.checked?[...current,s.employeeId]:current.filter(id=>id!==s.employeeId))}/>{s.employeeName}</label>)}</div>
+        </details>
         <input placeholder="Filtrar por nome ou data" aria-label="Buscar na matriz" value={filter} onChange={e=>{setFilter(e.target.value);setPage(0);}}/>
         <div className="table-scroll time-table"><table className="data-table"><thead><tr>
           <th>Funcionário</th><th>Data</th><th>Tipo</th><th>Entrada</th><th>Saída almoço</th><th>Retorno</th><th>Saída</th><th>Horas reais</th><th>Observações</th>
@@ -325,7 +334,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
       </section>}
       {view==='import'&&<section className="card time-sheet">
         <h2>Importar ficha de ponto CSV / Excel</h2>
-        <p>Identifique os funcionários por CPF, matrícula ou nome. Revise o mapeamento antes da gravação. Limite de 500 linhas e 10 MB por arquivo.</p>
+        <p>Identifique os funcionários por CPF, matrícula ou nome. Revise o mapeamento antes da gravação. Até 30.000 linhas e 30 MB por arquivo. O mapeamento é reutilizado automaticamente para planilhas com as mesmas colunas.</p>
         <button className="btn btn-secondary" disabled={busy} onClick={()=>void run(async()=>{
           await window.holerites.exportTimeMatrix({companyId,competence,format:'template'});
         })}>Baixar modelo XLSX</button>
