@@ -5,6 +5,8 @@ import type {PayrollKind, SpecialOptions, VacationOptions, ThirteenthOptions, Te
 import {calculatePayroll, money} from './shared/payroll';
 import {PayrollKindTabs,PAYROLL_KIND_LABELS} from './ui/PayrollKindTabs';
 import {TimeControlPage} from './ui/TimeControlPage';
+import {LocalAccessPanel} from './ui/LocalAccessPanel';
+import type {AuthState} from '../electron/access-control';
 
 type Tab='dashboard'|'payroll'|'employees'|'companies'|'history'|'time';
 const payrollKindLabels=PAYROLL_KIND_LABELS;
@@ -67,15 +69,18 @@ function CompanyForm({initial,onSave,onClose,busy}: {initial?:Company;onSave:(v:
   </form>;
 }
 function EmployeeForm({initial,companies,companyId,onSave,onClose,busy}: {initial?:Employee;companies:Company[];companyId:string;onSave:(v:EmployeeInput & {id?:string})=>void;onClose:()=>void;busy:boolean}) {
-  const [v,setV]=useState({companyId:initial?.companyId??companyId??companies[0]?.id??'',name:initial?.name??'',cpf:initial?.cpf??'',role:initial?.role??'',admissionDate:initial?.admissionDate??new Date().toISOString().slice(0,10),salary:initial?asReais(initial.salaryCents):'',dependents:String(initial?.dependents??0),active:initial?.active??true,registration:initial?.registration??'',pis:initial?.pis??'',workHours:initial?.workHours??'',bankName:initial?.bankName??'',bankBranch:initial?.bankBranch??'',bankAccount:initial?.bankAccount??'',pixKey:initial?.pixKey??''});
+  const [v,setV]=useState({companyId:initial?.companyId??companyId??companies[0]?.id??'',name:initial?.name??'',cpf:initial?.cpf??'',role:initial?.role??'',admissionDate:initial?.admissionDate??new Date().toISOString().slice(0,10),salary:initial?asReais(initial.salaryCents):'',dependents:String(initial?.dependents??0),active:initial?.active??true,registration:initial?.registration??'',sector:initial?.sector??'',jobSite:initial?.jobSite??'',costCenter:initial?.costCenter??'',pis:initial?.pis??'',workHours:initial?.workHours??'',bankName:initial?.bankName??'',bankBranch:initial?.bankBranch??'',bankAccount:initial?.bankAccount??'',pixKey:initial?.pixKey??''});
   const [recurringEntries,setRecurringEntries]=useState<PayItem[]>(initial?.recurringEntries??[]);
   const editRecurring=(id:string,patch:Partial<PayItem>)=>setRecurringEntries(items=>items.map(item=>item.id===id?{...item,...patch}:item));
   const change=(key:keyof typeof v,value:string|boolean)=>setV(s=>({...s,[key]:value}));
-  return <form className="form-grid" onSubmit={e=>{e.preventDefault();onSave({id:initial?.id,companyId:v.companyId,name:v.name,cpf:v.cpf,role:v.role,admissionDate:v.admissionDate,salaryCents:toCents(v.salary),dependents:Number(v.dependents),active:v.active,registration:v.registration,pis:v.pis,workHours:v.workHours,bankName:v.bankName,bankBranch:v.bankBranch,bankAccount:v.bankAccount,pixKey:v.pixKey,recurringEntries});}}>
+  return <form className="form-grid" onSubmit={e=>{e.preventDefault();onSave({id:initial?.id,companyId:v.companyId,name:v.name,cpf:v.cpf,role:v.role,admissionDate:v.admissionDate,salaryCents:toCents(v.salary),dependents:Number(v.dependents),active:v.active,registration:v.registration,sector:v.sector,jobSite:v.jobSite,costCenter:v.costCenter,pis:v.pis,workHours:v.workHours,bankName:v.bankName,bankBranch:v.bankBranch,bankAccount:v.bankAccount,pixKey:v.pixKey,recurringEntries});}}>
     <Field label="Empresa *"><select required value={v.companyId} onChange={e=>change('companyId',e.target.value)}>{companies.map(c=><option key={c.id} value={c.id}>{c.tradeName||c.legalName}</option>)}</select></Field>
     <Field label="Nome completo *"><input required value={v.name} onChange={e=>change('name',e.target.value)} autoFocus maxLength={150}/></Field>
     <Field label="CPF"><input value={v.cpf} onChange={e=>change('cpf',e.target.value)} placeholder="11 dígitos" maxLength={14}/></Field>
     <Field label="Matrícula"><input value={v.registration} onChange={e=>change('registration',e.target.value)} maxLength={40}/></Field>
+    <Field label="Setor"><input value={v.sector} onChange={e=>change('sector',e.target.value)} maxLength={100}/></Field>
+    <Field label="Obra/local de trabalho"><input value={v.jobSite} onChange={e=>change('jobSite',e.target.value)} maxLength={120}/></Field>
+    <Field label="Centro de custo"><input value={v.costCenter} onChange={e=>change('costCenter',e.target.value)} maxLength={100}/></Field>
     <Field label="PIS/NIS"><input value={v.pis} onChange={e=>change('pis',e.target.value)} placeholder="11 dígitos" maxLength={20}/></Field>
     <Field label="Jornada de trabalho"><input value={v.workHours} onChange={e=>change('workHours',e.target.value)} placeholder="Ex.: 44 horas semanais" maxLength={100}/></Field>
     <Field label="Banco"><input value={v.bankName} onChange={e=>change('bankName',e.target.value)} maxLength={100}/></Field>
@@ -214,6 +219,8 @@ function PayrollEditor({employee,competence,kind,defaultAdvanceCents,existing,bu
 function App() {
   const [data,setData]=useState<StateSnapshot>(initialData);
   const [loading,setLoading]=useState(true);
+  const [auth,setAuth]=useState<AuthState|null>(null);
+  const [authOpen,setAuthOpen]=useState(false);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
   const [toast,setToast]=useState('');
@@ -230,7 +237,19 @@ function App() {
   const [sidebarOpen,setSidebarOpen]=useState(false);
   const [pointOverview,setPointOverview]=useState<{total:number;closed:number}|null>(null);
   const reload=async()=>{const snapshot=await window.holerites.snapshot();setData(snapshot);setCompanyId(id=>snapshot.companies.some(c=>c.id===id)?id:(snapshot.companies[0]?.id??''));};
-  useEffect(()=>{reload().catch(e=>setError(String(e))).finally(()=>setLoading(false));},[]);
+  useEffect(()=>{void (async()=>{
+    try{
+      const state=await window.holerites.getAuthState();
+      setAuth(state);
+      if(!state.configured||state.operator)await reload();
+    }catch(e){setError(String(e));}
+    finally{setLoading(false);}
+  })();},[]);
+  const syncAuth=async()=>{
+    const state=await window.holerites.getAuthState();
+    setAuth(state);
+    if(!state.configured||state.operator)await reload();
+  };
   async function act(task:()=>Promise<unknown>,message?:string|((result:unknown)=>string)) {setBusy(true);setError('');setToast('');try{const result=await task();await reload();if(message)setToast(typeof message==='function'?message(result):message);}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setBusy(false);}}
   const employees=useMemo(()=>data.employees.filter(e=>!companyId||e.companyId===companyId),[data.employees,companyId]);
   const payrolls=useMemo(()=>data.payrolls.filter(p=>!companyId||p.companyId===companyId),[data.payrolls,companyId]);
@@ -258,7 +277,8 @@ function App() {
   const companyPicker=<select className="company-picker" aria-label="Empresa atual" value={companyId} onChange={e=>{setCompanyId(e.target.value);setSelectedEmployeeId('');}}>{data.companies.map(c=><option key={c.id} value={c.id}>{c.tradeName||c.legalName}</option>)}</select>;
   const selectEmployee=(id:string)=>{setSelectedEmployeeId(id);setTab('payroll');};
   const title:Record<Tab,string>={dashboard:'Visão geral',payroll:'Folha de pagamento',employees:'Funcionários',companies:'Empresas',history:'Histórico de holerites',time:'Controle de ponto'};
-  if(loading)return <div className="loading"><div className="brandmark">A</div><h2>ArtiSys Holerites</h2><p>Carregando seus dados locais…</p></div>;
+  if(!loading&&auth?.configured&&!auth.operator)return <LocalAccessPanel auth={auth} required onChange={syncAuth} onClose={()=>{}}/>;
+  if(loading||!auth)return <div className="loading"><div className="brandmark">A</div><h2>ArtiSys Holerites</h2><p>Carregando seus dados locais…</p></div>;
   return <div className="app-shell">
     <aside className={'sidebar '+(sidebarOpen?'sidebar-open':'')} aria-label="Navegação principal">
       <div className="brand"><div className="brandmark">A</div><div><strong>ArtiSys</strong><span>PONTO E FOLHA</span></div></div>
@@ -271,6 +291,9 @@ function App() {
         ['history','Histórico','history'],
         ['dashboard','Visão geral','dashboard']
       ] as [Tab,string,IconName][]).map(([key,label,icon])=><button type="button" className={'nav-link '+(tab===key?'active':'')} aria-current={tab===key?'page':undefined} onClick={()=>navigate(key)} key={key}><Icon name={icon} size={19}/>{label}</button>)}</nav>
+      <button className="btn btn-secondary" type="button" onClick={()=>setAuthOpen(true)}>
+        {auth.configured?'Perfis locais · '+(auth.operator?.name||''):'Ativar perfis locais'}
+      </button>
       <div className="sidebar-footer"><div className="secure-dot"/><div><b>Banco local</b><span>Seus dados permanecem neste computador.</span></div></div>
     </aside>
     {sidebarOpen&&<button className="sidebar-overlay" onClick={()=>setSidebarOpen(false)} aria-label="Fechar menu"/>}
@@ -281,7 +304,7 @@ function App() {
         {error&&<div className="error-banner" role="alert"><span>{error}</span><button aria-label="Fechar erro" onClick={()=>setError('')}><Icon name="close" size={16}/></button></div>}
         {toast&&<div className="success-banner" role="status"><Icon name="check" size={17}/>{toast}<button onClick={()=>setToast('')} aria-label="Fechar aviso"><Icon name="close" size={15}/></button></div>}
         {data.companies.length===0&&tab!=='companies'?<div className="card"><Empty title="Comece cadastrando sua empresa" description="O primeiro passo é cadastrar a empresa para controlar as jornadas e depois emitir holerites." action={<Button icon="plus" onClick={()=>openCompany()}>Cadastrar empresa</Button>}/></div>:null}
-        {data.companies.length>0&&tab==='time'&&<TimeControlPage companyId={companyId} competence={competence} employees={employees} initialEmployeeId={selectedEmployeeId} onPayrollUpdated={id=>{void reload();setSelectedEmployeeId(id);setPayrollKind('monthly');navigate('payroll');setToast('Ponto fechado e integrado. Confira o holerite antes de finalizar.');}}/>}
+        {data.companies.length>0&&tab==='time'&&<TimeControlPage companyId={companyId} competence={competence} employees={employees} initialEmployeeId={selectedEmployeeId} onPayrollUpdated={id=>{void reload();setSelectedEmployeeId(id);setPayrollKind('monthly');navigate('payroll');setToast('Ponto integrado. Confira o holerite antes de finalizar.');}}/>}
         {data.companies.length>0&&tab==='dashboard'&&<>
           <section className="overview-hero" aria-label="Emissão de documentos e resumo da competência">
             <div className="hero-copy">
@@ -323,9 +346,10 @@ function App() {
           </div>}
         </>}
         {tab==='history'&&<div className="card"><div className="card-heading"><div><h2>Recibos e pagamentos</h2><p>Holerites finalizados preservam os dados originais da emissão.</p></div><div className="history-controls"><select aria-label="Filtrar por tipo de documento" className="history-kind-filter" value={historyKind} onChange={e=>setHistoryKind(e.target.value as 'all'|PayrollKind)}><option value="all">Todos os tipos</option>{(Object.keys(payrollKindLabels) as PayrollKind[]).map(k=><option key={k} value={k}>{payrollKindLabels[k]}</option>)}</select><div className="search-box"><Icon name="search" size={17}/><input placeholder="Buscar nome ou mês" aria-label="Buscar holerite" value={search} onChange={e=>setSearch(e.target.value)}/></div></div></div>{payrolls.length?<div className="table-scroll"><table className="data-table"><thead><tr><th>Funcionário</th><th>Competência</th><th>Bruto</th><th>Descontos</th><th>Líquido</th><th>Status</th><th>Documentos</th></tr></thead><tbody>{payrolls.filter(p=>(historyKind==='all'||p.kind===historyKind)&&(p.details.employee.name+' '+p.competence).toLowerCase().includes(filtered)).map(p=><tr key={p.id}><td><strong>{p.details.employee.name}</strong><small>{companyName(p.companyId)}</small></td><td>{brDate(p.competence)}<small>{payrollKindLabels[p.kind??'monthly']}</small></td><td className="money-cell">{money(p.details.totals.grossCents)}</td><td className="money-cell">{money(p.details.totals.deductionCents)}</td><td className="money-cell"><strong>{money(p.details.totals.netCents)}</strong></td><td><Status status={p.status}/></td><td className="table-actions"><button onClick={()=>void act(()=>window.holerites.exportPDF(p.id))} title="Salvar PDF" aria-label="Salvar PDF"><Icon name="download" size={17}/></button><button onClick={()=>void act(()=>window.holerites.print(p.id))} title="Imprimir" aria-label="Imprimir"><Icon name="print" size={17}/></button><button onClick={()=>{setCompetence(p.competence);setPayrollKind(p.kind??'monthly');selectEmployee(p.employeeId);}} title="Abrir holerite">Abrir</button></td></tr>)}</tbody></table></div>:<Empty title="Histórico vazio" description="Os holerites aparecerão aqui depois do primeiro rascunho."/>}</div>}
-        <footer className="page-footer"><span>ArtiSys Ponto e Folha · 0.3.0</span><span>100% offline · Sem serviços pagos obrigatórios · Dados sob seu controle</span></footer>
+        <footer className="page-footer"><span>ArtiSys Ponto e Folha · 0.4.0</span><span>100% offline · Sem serviços pagos obrigatórios · Dados sob seu controle</span></footer>
       </main>
     </div>
+    {authOpen&&<LocalAccessPanel auth={auth} onChange={syncAuth} onClose={()=>setAuthOpen(false)}/>}
     {modal&&<div className="modal-backdrop" role="presentation" onMouseDown={e=>{if(e.currentTarget===e.target)setModal(null);}}><div className="modal" role="dialog" aria-modal="true" aria-label={modal==='company'?'Cadastro de empresa':'Cadastro de funcionário'}><div className="modal-heading"><div><div className="eyebrow">CADASTRO</div><h2>{modal==='company'?(editingCompany?'Editar empresa':'Nova empresa'):(editingEmployee?'Editar funcionário':'Novo funcionário')}</h2></div><button className="icon-btn" type="button" aria-label="Fechar" onClick={()=>setModal(null)}><Icon name="close"/></button></div>{modal==='company'?<CompanyForm initial={editingCompany} busy={busy} onClose={()=>setModal(null)} onSave={input=>void act(async()=>{const c=await window.holerites.saveCompany(input);setCompanyId(c.id);setModal(null);},'Empresa salva com sucesso.')}/>:<EmployeeForm initial={editingEmployee} companies={data.companies} companyId={companyId} busy={busy} onClose={()=>setModal(null)} onSave={input=>void act(async()=>{await window.holerites.saveEmployee(input);setModal(null);},'Funcionário salvo com sucesso.')}/>}</div></div>}
   </div>;
 }

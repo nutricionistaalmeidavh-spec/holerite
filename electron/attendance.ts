@@ -1,16 +1,18 @@
 import {DatabaseSync} from 'node:sqlite';
 import {randomUUID} from 'node:crypto';
-import {assessMonth,defaultSchedule,previewMonth,validateDay,validateSchedule,validMonth,weekday,workedMinutes} from '../src/shared/time';
-import type {PointDay,PointSummary,WorkSchedule} from '../src/shared/time';
+import {assessMonth,defaultSchedule,previewMonth,validateDay,validateSchedule,validMonth,weekday,workedMinutes,diagnosePointDays} from '../src/shared/time';
+import type {PointDay,PointSummary,WorkSchedule,PointIssue} from '../src/shared/time';
 
 export interface TimeConfig {enabled:boolean;variationMinutes:number;schedule:WorkSchedule;}
-export interface TimeSheet {employeeId:string;companyId:string;competence:string;status:'draft'|'closed';revision:number;days:PointDay[];summary:PointSummary;closedAt:string|null;}
+export interface TimeSheet {employeeId:string;companyId:string;competence:string;status:'draft'|'closed';revision:number;days:PointDay[];summary:PointSummary;issues:PointIssue[];closedAt:string|null;}
 export interface MatrixChange {employeeId:string;competence:string;day:PointDay;expectedRevision?:number;}
 type Row=Record<string,unknown>;
 const now=()=>new Date().toISOString();
 const json=<T>(raw:unknown)=>JSON.parse(String(raw)) as T;
 function requiredId(id:string){if(!id||typeof id!=='string'||id.length>50)throw new Error('Identificador inválido.');return id;}
 export class AttendanceStore {
+  private auditActor:string|null=null;
+  setAuditActor(id:string|null):void {this.auditActor=id;}
   constructor(private db:DatabaseSync){
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS time_configs (
@@ -42,12 +44,20 @@ export class AttendanceStore {
         created_at TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_time_audit_person ON time_audit(employee_id,competence,created_at);
+      CREATE TABLE IF NOT EXISTS time_attachments (
+        id TEXT PRIMARY KEY,employee_id TEXT NOT NULL REFERENCES employees(id),date TEXT NOT NULL,
+        filename TEXT NOT NULL,mime TEXT NOT NULL,content BLOB NOT NULL,created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_point_attachments_employee ON time_attachments(employee_id,date);
+      CREATE TABLE IF NOT EXISTS time_import_mappings (company_id TEXT NOT NULL REFERENCES companies(id),headers_json TEXT NOT NULL,mapping_json TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(company_id,headers_json));
       CREATE TABLE IF NOT EXISTS time_import_batches (
         id TEXT PRIMARY KEY,company_id TEXT NOT NULL REFERENCES companies(id),
         filename TEXT NOT NULL,content_hash TEXT NOT NULL,processed INTEGER NOT NULL,
         created_at TEXT NOT NULL
       );
     `);
+    const auditColumns=new Set((this.db.prepare('PRAGMA table_info(time_audit)').all() as Row[]).map(row=>String(row.name)));
+    if(!auditColumns.has('actor_id'))this.db.exec('ALTER TABLE time_audit ADD COLUMN actor_id TEXT;');
     // Backwards-compatible migration of the opt-in version: point is now the core.
     this.db.exec('UPDATE time_configs SET enabled=1 WHERE enabled<>1;');
   }
@@ -120,8 +130,10 @@ export class AttendanceStore {
     const row=this.db.prepare('SELECT * FROM time_sheets WHERE employee_id=? AND competence=?').get(employeeId,competence) as Row|undefined;
     const days=this.readDays(employeeId,competence);
     const snapshot=row?.closed_snapshot_json?json<{summary:PointSummary}>(row.closed_snapshot_json):null;
+    const issueSchedule=row?.closed_snapshot_json
+      ?json<{schedule:WorkSchedule}>(row.closed_snapshot_json).schedule:this.getSchedule(employeeId);
     return {employeeId,companyId,competence,status:row?.status==='closed'?'closed':'draft',revision:Number(row?.revision??0),
-      days,summary:snapshot?.summary??assessMonth(days,this.getSchedule(employeeId),Number(employee.salary_cents)),
+      days,issues:diagnosePointDays(days,issueSchedule,competence),summary:snapshot?.summary??assessMonth(days,this.getSchedule(employeeId),Number(employee.salary_cents)),
       closedAt:row?.closed_at?String(row.closed_at):null};
   }
   matrix(companyId:string,competence:string):Array<TimeSheet&{employeeName:string}> {
@@ -131,15 +143,15 @@ export class AttendanceStore {
     return employees.map(row=>({...this.getSheet(String(row.id),competence),employeeName:String(row.name)}));
   }
   private audit(employeeId:string,competence:string,action:string,before:unknown,after:unknown,reason='',date:string|null=null){
-    this.db.prepare('INSERT INTO time_audit VALUES (?,?,?,?,?,?,?,?,?)').run(randomUUID(),employeeId,competence,date,
-      action,before?JSON.stringify(before):null,after?JSON.stringify(after):null,reason,now());
+    this.db.prepare('INSERT INTO time_audit(id,employee_id,competence,date,action,before_json,after_json,reason,created_at,actor_id) VALUES (?,?,?,?,?,?,?,?,?,?)').run(randomUUID(),employeeId,competence,date,
+      action,before?JSON.stringify(before):null,after?JSON.stringify(after):null,reason,now(),this.auditActor);
   }
   auditHistory(employeeId:string,competence:string):Row[]{
     this.employee(employeeId);
-    return this.db.prepare('SELECT date,action,before_json,after_json,reason,created_at FROM time_audit WHERE employee_id=? AND competence=? ORDER BY created_at DESC LIMIT 300').all(employeeId,competence) as Row[];
+    return this.db.prepare('SELECT ta.date,ta.action,ta.before_json,ta.after_json,ta.reason,ta.created_at,ta.actor_id,op.name AS actor_name FROM time_audit ta LEFT JOIN time_operators op ON ta.actor_id=op.id WHERE ta.employee_id=? AND ta.competence=? ORDER BY ta.created_at DESC LIMIT 300').all(employeeId,competence) as Row[];
   }
   saveMatrix(changes:MatrixChange[],overwriteImported=false):number {
-    if(!Array.isArray(changes)||!changes.length||changes.length>500)throw new Error('Informe de 1 a 500 dias.');
+    if(!Array.isArray(changes)||!changes.length||changes.length>30000)throw new Error('Informe de 1 a 30.000 dias por operação.');
     const members=new Map<string,{companyId:string;revision:number}>();
     const keys=new Set<string>();
     for(const item of changes){
@@ -262,6 +274,20 @@ export class AttendanceStore {
     this.audit(employeeId,competence,'reopen',null,null,reason.trim());
     return this.getSheet(employeeId,competence);
   }
+
+  getImportMapping(companyId:string,headers:string[]):Record<string,string>|null {
+    this.requireEnabled(companyId);
+    const row=this.db.prepare('SELECT mapping_json FROM time_import_mappings WHERE company_id=? AND headers_json=?')
+      .get(companyId,JSON.stringify(headers)) as Row|undefined;
+    return row?json<Record<string,string>>(row.mapping_json):null;
+  }
+  saveImportMapping(companyId:string,headers:string[],mapping:Record<string,string>):void {
+    this.requireEnabled(companyId);
+    if(!Array.isArray(headers)||headers.length>50||!headers.length||Object.values(mapping).some(value=>!headers.includes(value)))
+      throw new Error('Mapeamento inválido para as colunas da planilha.');
+    this.db.prepare('INSERT INTO time_import_mappings(company_id,headers_json,mapping_json,updated_at) VALUES(?,?,?,?) ON CONFLICT(company_id,headers_json) DO UPDATE SET mapping_json=excluded.mapping_json,updated_at=excluded.updated_at')
+      .run(companyId,JSON.stringify(headers),JSON.stringify(mapping),now());
+  }
   hasImportedHash(companyId:string,hash:string):boolean {
     return !!this.db.prepare('SELECT id FROM time_import_batches WHERE company_id=? AND content_hash=?').get(companyId,hash);
   }
@@ -278,4 +304,46 @@ export class AttendanceStore {
     return this.db.prepare('SELECT filename,processed,created_at FROM time_import_batches WHERE company_id=? ORDER BY created_at DESC LIMIT 30')
       .all(companyId) as Row[];
   }
+  /** Anexos locais no SQLite: acompanham backup e não fazem upload. */
+  addAttachment(employeeId:string,date:string,filename:string,mime:string,content:Uint8Array):
+    {id:string;employeeId:string;date:string;filename:string;mime:string;size:number;createdAt:string} {
+    const person=this.employee(employeeId);
+    if(!/^20\d{2}-\d{2}-\d{2}$/.test(date)||!validMonth(date.slice(0,7))||!content||content.byteLength<5||content.byteLength>10*1024*1024)
+      throw new Error('Data ou arquivo de anexo inválido (até 10 MB).');
+    this.requireEnabled(String(person.company_id));
+    const ext=filename.toLowerCase().split('.').pop();
+    const allowed:Record<string,string>={pdf:'application/pdf',png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',webp:'image/webp'};
+    if(!ext||allowed[ext]!==mime||filename.length>180||/[\\/\\\\]/.test(filename))
+      throw new Error('Anexe somente PDF, PNG, JPEG ou WebP.');
+    const bytes=Buffer.from(content);
+    if((ext==='pdf'&&bytes.subarray(0,5).toString()!=='%PDF-')||
+      (ext==='png'&&bytes.subarray(0,4).toString('hex')!=='89504e47')||
+      ((ext==='jpg'||ext==='jpeg')&&bytes.subarray(0,3).toString('hex')!=='ffd8ff')||
+      (ext==='webp'&&(bytes.subarray(0,4).toString()!=='RIFF'||bytes.subarray(8,12).toString()!=='WEBP')))
+      throw new Error('O conteúdo não corresponde ao formato do arquivo.');
+    const id=randomUUID(),createdAt=now();
+    this.db.prepare('INSERT INTO time_attachments VALUES(?,?,?,?,?,?,?)').run(id,employeeId,date,filename,mime,bytes,createdAt);
+    this.audit(employeeId,date.slice(0,7),'attach',null,{id,filename,size:bytes.length},'Documento de justificativa',date);
+    return {id,employeeId,date,filename,mime,size:bytes.length,createdAt};
+  }
+  listAttachments(employeeId:string,competence:string):Array<{id:string;employeeId:string;date:string;filename:string;mime:string;size:number;createdAt:string}> {
+    this.employee(employeeId);
+    if(!validMonth(competence))throw new Error('Competência inválida.');
+    const rows=this.db.prepare('SELECT id,employee_id,date,filename,mime,length(content) AS size,created_at FROM time_attachments WHERE employee_id=? AND substr(date,1,7)=? ORDER BY date,created_at')
+      .all(employeeId,competence) as Row[];
+    return rows.map(row=>({id:String(row.id),employeeId:String(row.employee_id),date:String(row.date),filename:String(row.filename),mime:String(row.mime),size:Number(row.size),createdAt:String(row.created_at)}));
+  }
+  getAttachment(employeeId:string,id:string):{filename:string;mime:string;content:Buffer} {
+    this.employee(employeeId);
+    const row=this.db.prepare('SELECT filename,mime,content FROM time_attachments WHERE id=? AND employee_id=?').get(requiredId(id),employeeId) as Row|undefined;
+    if(!row)throw new Error('Anexo não encontrado para este funcionário.');
+    return {filename:String(row.filename),mime:String(row.mime),content:Buffer.from(row.content as Uint8Array)};
+  }
+  removeAttachment(employeeId:string,id:string):void {
+    const attachment=this.getAttachment(employeeId,id);
+    const row=this.db.prepare('SELECT date FROM time_attachments WHERE id=?').get(id) as Row;
+    this.db.prepare('DELETE FROM time_attachments WHERE id=? AND employee_id=?').run(id,employeeId);
+    this.audit(employeeId,String(row.date).slice(0,7),'detach',{id,filename:attachment.filename},null,'Anexo removido',String(row.date));
+  }
+
 }

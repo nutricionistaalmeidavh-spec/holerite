@@ -2,6 +2,12 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type {HoleriteAPI} from '../src/shared/types';
 const call = <T>(method: string, input?: unknown): Promise<T> => ipcRenderer.invoke('holerites:' + method, input);
 const api: HoleriteAPI = {
+  getAuthState: () => call('auth-state'),
+  setupLocalAccess: input => call('auth-setup',input),
+  loginLocal: input => call('auth-login',input),
+  logoutLocal: () => call('auth-logout'),
+  getLocalOperators: () => call('auth-users'),
+  addLocalOperator: input => call('auth-add-user',input),
   snapshot: () => call('snapshot'),
   saveCompany: input => call('save-company', input),
   saveEmployee: input => call('save-employee', input),
@@ -34,6 +40,13 @@ const api: HoleriteAPI = {
   getTimeBankBalance: input => call('time-bank-balance',input),
   exportTimeMatrix: input => call('time-export-matrix',input),
   exportTimePDF: input => call('time-export-pdf',input),
-  printTimeSheet: input => call('time-print',input)
+  printTimeSheet: input => call('time-print',input),
+  getTimeAttachments: input => call('time-attachment-list',input),
+  addTimeAttachment: input => call('time-attachment-add',input),
+  saveTimeAttachment: input => call('time-attachment-save',input),
+  removeTimeAttachment: input => call('time-attachment-remove',input),
+  exportTimeReport: input => call('time-export-report',input),
+  exportTimeBatchPDF: input => call('time-export-batch-pdf',input),
+  printTimeBatch: input => call('time-print-batch',input)
 };
 contextBridge.exposeInMainWorld('holerites', api);

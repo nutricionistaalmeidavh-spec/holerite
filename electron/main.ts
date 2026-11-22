@@ -1,11 +1,11 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import { registerUpdateFlow } from './updates';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { join, basename, extname } from 'node:path';
 import { HoleriteDatabase } from './database';
 import { receiptHTML } from './receipt';
-import {pointReceiptHTML} from './point-receipt';
+import {pointReceiptHTML,pointReceiptBatchHTML} from './point-receipt';
 import {TimeImporter} from './time-import';
 import {exportTimeFile} from './time-export';
 import type {PayrollRecord} from '../src/shared/types';
@@ -61,13 +61,52 @@ async function printTime(employeeId:string,competence:string,action:'pdf'|'print
     return true;
   }finally{if(!window.isDestroyed())window.destroy();}
 }
+
+async function printTimeBatch(companyId:string,competence:string,employeeIds:string[],action:'pdf'|'print'):Promise<boolean>{
+  if(!/^20\d{2}-(0[1-9]|1[0-2])$/.test(competence))throw new Error('Competência inválida.');
+  const available=storage.snapshot().employees.filter(employee=>employee.companyId===companyId&&employee.active);
+  const ids=employeeIds.length?[...new Set(employeeIds)]:available.map(employee=>employee.id);
+  if(!ids.length||ids.length>500)throw new Error('Selecione de 1 a 500 funcionários.');
+  const employees=ids.map(id=>{
+    const employee=available.find(e=>e.id===id);
+    if(!employee)throw new Error('Funcionário não pertence à empresa.');
+    return employee;
+  });
+  const company=storage.getCompany(companyId);
+  const html=pointReceiptBatchHTML(employees.map(employee=>({employee,company,sheet:storage.attendance.getSheet(employee.id,competence)})));
+  const win=new BrowserWindow({show:false,width:1000,height:800,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,webSecurity:true}});
+  win.webContents.setWindowOpenHandler(()=>({action:'deny'}));
+  try {
+    await win.loadURL('data:text/html;charset=utf-8,'+encodeURIComponent(html));
+    if(action==='pdf'){
+      const selection=await dialog.showSaveDialog(mainWindow!,{title:'Salvar fichas da equipe',defaultPath:'Fichas-Ponto-Equipe-'+competence+'.pdf',filters:[{name:'PDF',extensions:['pdf']}]});
+      if(selection.canceled||!selection.filePath)return false;
+      await writeFile(selection.filePath,await win.webContents.printToPDF({pageSize:'A4',printBackground:true,landscape:true}));
+    }else await new Promise<void>((resolve,reject)=>win.webContents.print({silent:false,printBackground:true},(success,reason)=>{
+      if(success||reason==='Print job canceled')resolve();
+      else reject(new Error(reason||'Falha na impressão em lote.'));
+    }));
+    return true;
+  }finally{if(!win.isDestroyed())win.destroy();}
+}
 function bindIPC() {
   const bind=(name:string, fn:(arg:any)=>any)=>{
     ipcMain.handle('holerites:'+name, (event,arg:unknown)=>{
       if (!mainWindow || event.sender!==mainWindow.webContents) throw new Error('Origem não autorizada.');
+      const publicMethods=new Set(['auth-state','auth-setup','auth-login','auth-logout']);
+      if(!publicMethods.has(name)){
+        storage.access.requireAccess(name);
+        storage.attendance.setAuditActor(storage.access.state().operator?.id??null);
+      }
       return fn(arg);
     });
   };
+  bind('auth-state',()=>storage.access.state());
+  bind('auth-setup',(v:any)=>storage.access.setup(v.name,v.pin));
+  bind('auth-login',(v:any)=>storage.access.login(v.name,v.pin));
+  bind('auth-logout',()=>{storage.access.logout();storage.attendance.setAuditActor(null);});
+  bind('auth-users',()=>storage.access.listUsers());
+  bind('auth-add-user',(v:any)=>storage.access.addUser(v.name,v.pin,v.role));
   bind('snapshot',()=>storage.snapshot());
   bind('save-company',v=>storage.saveCompany(v));
   bind('save-employee',v=>storage.saveEmployee(v));
@@ -116,6 +155,42 @@ function bindIPC() {
   });
   bind('time-export-pdf',(v:any)=>printTime(v.employeeId,v.competence,'pdf'));
   bind('time-print',(v:any)=>printTime(v.employeeId,v.competence,'print'));
+
+
+  bind('time-attachment-list',(v:any)=>storage.attendance.listAttachments(v.employeeId,v.competence));
+  bind('time-attachment-add',async(v:any)=>{
+    const selected=await dialog.showOpenDialog(mainWindow!,{title:'Anexar atestado ou justificativa',properties:['openFile'],
+      filters:[{name:'Documentos',extensions:['pdf','png','jpg','jpeg','webp']}]});
+    if(selected.canceled||!selected.filePaths[0])return null;
+    const path=selected.filePaths[0],extension=extname(path).toLowerCase();
+    const mime:Record<string,string>={'.pdf':'application/pdf','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp'};
+    if(!mime[extension])throw new Error('Formato de anexo inválido.');
+    const bytes=await readFile(path);
+    return storage.attendance.addAttachment(v.employeeId,v.date,basename(path),mime[extension],bytes);
+  });
+  bind('time-attachment-save',async(v:any)=>{
+    const item=storage.attendance.getAttachment(v.employeeId,v.id);
+    const selected=await dialog.showSaveDialog(mainWindow!,{title:'Salvar anexo',defaultPath:item.filename});
+    if(selected.canceled||!selected.filePath)return false;
+    await writeFile(selected.filePath,item.content);return true;
+  });
+  bind('time-attachment-remove',(v:any)=>storage.attendance.removeAttachment(v.employeeId,v.id));
+  bind('time-export-report',async(v:any)=>{
+    const result=await dialog.showSaveDialog(mainWindow!,{title:'Exportar indicadores de ponto',defaultPath:'Indicadores-Ponto-'+v.competence+'.csv',filters:[{name:'CSV',extensions:['csv']}]});
+    if(result.canceled||!result.filePath)return false;
+    const people=new Map(storage.snapshot().employees.map(e=>[e.id,e]));
+    const sheets=storage.attendance.matrix(v.companyId,v.competence);
+    const rows=[['Funcionário','Setor','Obra','Centro de custo','Competência','Minutos trabalhados','Minutos extras','Minutos noturnos','Minutos de atraso','Faltas','Saldo banco (min)','DSR estimado em centavos'],
+      ...sheets.map(s=>{
+        const p=people.get(s.employeeId);
+        return [s.employeeName,p?.sector||'',p?.jobSite||'',p?.costCenter||'',s.competence,String(s.summary.workedMinutes),String(s.summary.overtimeMinutes),String(s.summary.nightMinutes),String(s.summary.lateMinutes),String(s.summary.absences),String(s.summary.bankMinutes),String(s.summary.dsrCents??0)];
+      })];
+    const quote=(value:string)=>'"'+(/^[=+@-]/.test(value)?"'"+value:value).replace(/"/g,'""')+'"';
+    await writeFile(result.filePath,'\uFEFF'+rows.map(r=>r.map(quote).join(';')).join('\r\n'),'utf8');
+    return true;
+  });
+  bind('time-export-batch-pdf',(v:any)=>printTimeBatch(v.companyId,v.competence,v.employeeIds??[],'pdf'));
+  bind('time-print-batch',(v:any)=>printTimeBatch(v.companyId,v.competence,v.employeeIds??[],'print'));
   bind('export-backup',async()=>{
     const result=await dialog.showSaveDialog(mainWindow!,{title:'Backup da base local',defaultPath:`ArtiSys-Holerites-backup-${new Date().toISOString().slice(0,10)}.sqlite`,filters:[{name:'SQLite',extensions:['sqlite']}]});
     if(result.canceled || !result.filePath) return false;
