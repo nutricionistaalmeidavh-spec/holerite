@@ -135,7 +135,8 @@ try {
   assert.ok(confirmed>=18,'Nenhum calendário de dias úteis foi conferido.');
   await page.getByRole('button',{name:/Salvar \d+ alteração/}).click();
   await page.getByRole('button',{name:'Fechar competência'}).click();
-  await page.getByRole('button',{name:'Gerar holerite do ponto'}).waitFor();
+  await page.getByRole('button',{name:'Gerar holerite do ponto'}).click();
+  await page.locator('.editor').waitFor({state:'visible'});
   await verifyNoAlert();
 
   await go('Visão geral');
