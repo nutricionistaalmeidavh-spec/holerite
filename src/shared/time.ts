@@ -14,7 +14,7 @@ export interface PointDay {
 }
 export interface PointSummary {
   workedMinutes:number; scheduledMinutes:number; overtimeMinutes:number;
-  deficitMinutes:number; lateMinutes:number; nightMinutes:number; bankMinutes:number;
+  deficitMinutes:number; absenceMinutes:number; shortfallMinutes:number; lateMinutes:number; nightMinutes:number; bankMinutes:number;
   overtimeCents:number; deficitCents:number; nightCents:number;
   daysWorked:number; absences:number; suggestedDays:number; incompleteDays:number;
 }
@@ -113,7 +113,7 @@ export function assessMonth(days:PointDay[],schedule:WorkSchedule,salaryCents:nu
   if(!Number.isSafeInteger(salaryCents)||salaryCents<=0)throw new Error('Salário inválido.');
   const scheduled=workedMinutes(schedule),expected=minutes(schedule.start);
   const result:PointSummary={workedMinutes:0,scheduledMinutes:0,overtimeMinutes:0,
-    deficitMinutes:0,lateMinutes:0,nightMinutes:0,bankMinutes:0,
+    deficitMinutes:0,absenceMinutes:0,shortfallMinutes:0,lateMinutes:0,nightMinutes:0,bankMinutes:0,
     overtimeCents:0,deficitCents:0,nightCents:0,daysWorked:0,absences:0,suggestedDays:0,incompleteDays:0};
   const seen=new Set<string>();
   for(const day of days){
@@ -124,7 +124,7 @@ export function assessMonth(days:PointDay[],schedule:WorkSchedule,salaryCents:nu
     const expectedDay=schedule.weekdays.includes(weekday(day.date));
     if(day.kind==='absence'){
       result.absences++;
-      if(expectedDay){result.scheduledMinutes+=scheduled;result.deficitMinutes+=scheduled;}
+      if(expectedDay){result.scheduledMinutes+=scheduled;result.deficitMinutes+=scheduled;result.absenceMinutes+=scheduled;}
       continue;
     }
     if(day.kind!=='work')continue;
@@ -137,13 +137,14 @@ export function assessMonth(days:PointDay[],schedule:WorkSchedule,salaryCents:nu
     result.scheduledMinutes+=planned;
     result.overtimeMinutes+=Math.max(0,minutesWorked-planned);
     result.deficitMinutes+=Math.max(0,planned-minutesWorked);
+    result.shortfallMinutes+=Math.max(0,planned-minutesWorked);
     result.lateMinutes+=expectedDay?Math.max(0,a-expected-schedule.toleranceMinutes):0;
     result.nightMinutes+=nightMinutesBetween(a,b)+nightMinutesBetween(c,d);
   }
   const centPerMinute=salaryCents/(schedule.divisor*60);
-  result.bankMinutes=schedule.overtimeDestination==='bank'?result.overtimeMinutes-result.deficitMinutes:0;
+  result.bankMinutes=schedule.overtimeDestination==='bank'?result.overtimeMinutes-result.shortfallMinutes:0;
   result.overtimeCents=schedule.overtimeDestination==='pay'?Math.round(result.overtimeMinutes*centPerMinute*(1+schedule.overtimePercent/100)):0;
-  result.deficitCents=Math.round(result.deficitMinutes*centPerMinute);
+  result.deficitCents=Math.round((result.absenceMinutes+(schedule.overtimeDestination==='bank'?0:result.shortfallMinutes))*centPerMinute);
   result.nightCents=Math.round(result.nightMinutes*centPerMinute*schedule.nightPercent/100);
   return result;
 }
