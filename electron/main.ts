@@ -93,9 +93,20 @@ function bindIPC() {
   const bind=(name:string, fn:(arg:any)=>any)=>{
     ipcMain.handle('holerites:'+name, (event,arg:unknown)=>{
       if (!mainWindow || event.sender!==mainWindow.webContents) throw new Error('Origem não autorizada.');
+      const publicMethods=new Set(['auth-state','auth-setup','auth-login','auth-logout']);
+      if(!publicMethods.has(name)){
+        storage.access.requireAccess(name);
+        storage.attendance.setAuditActor(storage.access.state().operator?.id??null);
+      }
       return fn(arg);
     });
   };
+  bind('auth-state',()=>storage.access.state());
+  bind('auth-setup',(v:any)=>storage.access.setup(v.name,v.pin));
+  bind('auth-login',(v:any)=>storage.access.login(v.name,v.pin));
+  bind('auth-logout',()=>{storage.access.logout();storage.attendance.setAuditActor(null);});
+  bind('auth-users',()=>storage.access.listUsers());
+  bind('auth-add-user',(v:any)=>storage.access.addUser(v.name,v.pin,v.role));
   bind('snapshot',()=>storage.snapshot());
   bind('save-company',v=>storage.saveCompany(v));
   bind('save-employee',v=>storage.saveEmployee(v));
