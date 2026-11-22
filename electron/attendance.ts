@@ -94,6 +94,21 @@ export class AttendanceStore {
       start:String(row.start),breakStart:String(row.break_start),breakEnd:String(row.break_end),end:String(row.end),notes:String(row.notes)
     }));
   }
+  getClosedSchedule(employeeId:string,competence:string):WorkSchedule {
+    const sheet=this.getSheet(employeeId,competence);
+    if(sheet.status!=='closed')throw new Error('Ficha ainda não fechada.');
+    const row=this.db.prepare('SELECT closed_snapshot_json FROM time_sheets WHERE employee_id=? AND competence=?')
+      .get(employeeId,competence) as Row;
+    return json<{schedule:WorkSchedule}>(row.closed_snapshot_json).schedule;
+  }
+  bankBalance(employeeId:string,competence:string):number {
+    const employee=this.employee(employeeId);
+    this.requireEnabled(String(employee.company_id));
+    if(!validMonth(competence))throw new Error('Competência inválida.');
+    const rows=this.db.prepare("SELECT closed_snapshot_json FROM time_sheets WHERE employee_id=? AND status='closed' AND competence<=?")
+      .all(employeeId,competence) as Row[];
+    return rows.reduce((total,row)=>total+Number(json<{summary:PointSummary}>(row.closed_snapshot_json).summary.bankMinutes||0),0);
+  }
   getSheet(employeeId:string,competence:string):TimeSheet {
     const employee=this.employee(employeeId);
     if(!validMonth(competence))throw new Error('Competência inválida.');
@@ -220,6 +235,9 @@ export class AttendanceStore {
       revision=revision+1,updated_at=? WHERE employee_id=? AND competence=?`).run(now(),employeeId,competence);
     this.audit(employeeId,competence,'reopen',null,null,reason.trim());
     return this.getSheet(employeeId,competence);
+  }
+  hasImportedHash(companyId:string,hash:string):boolean {
+    return !!this.db.prepare('SELECT id FROM time_import_batches WHERE company_id=? AND content_hash=?').get(companyId,hash);
   }
   recordImport(companyId:string,filename:string,hash:string,processed:number){
     this.requireEnabled(companyId);
