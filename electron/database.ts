@@ -216,6 +216,10 @@ export class HoleriteDatabase {
     const kind=input.kind??'monthly';
     if(!['monthly','vacation','thirteenth-first','thirteenth-second','termination'].includes(kind))throw new Error('Tipo de folha inválido.');
     if(original && original.kind!==kind)throw new Error('Não é possível alterar o tipo de uma folha existente.');
+    // In the new point-first workflow, monthly receipts can only originate from
+    // a closed attendance period; preserve editing old drafts created before the pivot.
+    if(kind==='monthly'&&!original&&this.attendance.getSheet(employee.id,input.competence).status!=='closed')
+      throw new Error('Feche e confira a ficha de ponto antes de gerar o holerite mensal.');
     const calculation=kind==='monthly' ? calculatePayroll({salaryCents,competence:input.competence,dependents:employee.dependents,entries:input.entries,taxMode:input.taxMode}) :
       calculateSpecialPayroll({salaryCents,competence:input.competence,admissionDate:employee.admissionDate,dependents:employee.dependents,entries:input.entries,taxMode:input.taxMode,kind,options:input.options??{}});
     const details: PayrollDetails = {...calculation,salaryCents,kind,options:input.options,employee:{...employee},company:{...company},competence:input.competence,taxMode:input.taxMode};
@@ -249,7 +253,12 @@ export class HoleriteDatabase {
         const employee=this.employeeFrom(row);
         const existing=this.db.prepare("SELECT id FROM payrolls WHERE employee_id=? AND competence=? AND kind='monthly'").get(employee.id,competence);
         if(existing){skipped++;continue;}
-        this.savePayroll({employeeId:employee.id,competence,kind:'monthly',taxMode:input.taxMode,entries:employee.recurringEntries??[]});
+        if(this.attendance.getSheet(employee.id,competence).status!=='closed')
+          throw new Error('Ficha de ponto não fechada para '+employee.name+'. Conclua a apuração antes de gerar holerites em lote.');
+        const schedule=this.attendance.getClosedSchedule(employee.id,competence);
+        const sheet=this.attendance.getSheet(employee.id,competence);
+        const pointEntries=payrollEntriesFromPoint(competence,sheet.summary,schedule);
+        this.savePayroll({employeeId:employee.id,competence,kind:'monthly',taxMode:input.taxMode,entries:[...(employee.recurringEntries??[]),...pointEntries]});
         created++;
       }
       this.db.exec('COMMIT;');
