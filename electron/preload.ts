@@ -35,6 +35,7 @@ const api: HoleriteAPI = {
   exportTimeMatrix: input => call('time-export-matrix',input),
   exportTimePDF: input => call('time-export-pdf',input),
   printTimeSheet: input => call('time-print',input),
+  exportTimeReport: input => call('time-export-report',input),
   exportTimeBatchPDF: input => call('time-export-batch-pdf',input),
   printTimeBatch: input => call('time-print-batch',input)
 };
