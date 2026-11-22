@@ -24,22 +24,20 @@ test('controle de ponto is enabled as core for every company, including a newly 
   db.close();
 });
 
-test('monthly holerite is only started after checking and closing the point sheet',()=>{
+test('monthly holerite can be issued before closing; reviewed point is applied once on the same draft',()=>{
   const {db,employee}=setup();
-  assert.throws(()=>db.savePayroll({employeeId:employee.id,competence:'2026-11',entries:[],taxMode:'automatic'}),/ponto|fechad/i);
-  assert.throws(()=>db.generateMonthlyBatch({companyId:employee.companyId,competence:'2026-11',taxMode:'automatic'}),/ponto|fechad/i);
-  const days=previewMonth('2026-11',defaultSchedule(),0).map(day=>day.kind==='work'?{...day,source:'manual' as const}:day);
-  days.find(day=>day.date==='2026-11-03')!.end='18:00';
-  db.attendance.saveMatrix(days.map(day=>({employeeId:employee.id,competence:'2026-11',day})));
-  db.attendance.close(employee.id,'2026-11');
-  // Even a direct monthly-editor submission cannot silently omit the closed point results.
-  const record=db.savePayroll({employeeId:employee.id,competence:'2026-11',entries:[],taxMode:'automatic'});
-  assert.equal(record.kind,'monthly');
-  assert.equal(record.employeeId,employee.id);
-  assert.equal(record.details.items.filter(item=>item.code==='HEXTRA').length,1);
-  const linked=db.applyTimeToPayroll(employee.id,'2026-11');
-  assert.equal(linked.id,record.id);
-  assert.equal(linked.details.items.filter(item=>item.code==='HEXTRA').length,1);
+  const first=db.savePayroll({employeeId:employee.id,competence:'2026-11',entries:[],taxMode:'automatic'});
+  assert.equal(first.kind,'monthly');
+  assert.equal(db.generateMonthlyBatch({companyId:employee.companyId,competence:'2026-11',taxMode:'automatic'}).skipped,1);
+  db.attendance.autofill(employee.id,'2026-11');
+  const withoutReview=db.applyTimeToPayroll(employee.id,'2026-11');
+  assert.ok(!withoutReview.details.items.some(row=>row.code==='HEXTRA'));
+  db.attendance.reviewSuggestions([employee.id],'2026-11');
+  const reviewed=db.applyTimeToPayroll(employee.id,'2026-11');
+  assert.equal(reviewed.id,first.id);
+  assert.equal(reviewed.details.items.filter(row=>row.id.startsWith('ponto-2026-11-')).length,
+    new Set(reviewed.details.items.filter(row=>row.id.startsWith('ponto-2026-11-')).map(row=>row.id)).size);
+  assert.equal(db.attendance.close(employee.id,'2026-11').status,'closed');
   db.close();
 });
 test('monthly timesheet persists manual marks, preserves edits when regenerating suggestions and closes',()=>{
