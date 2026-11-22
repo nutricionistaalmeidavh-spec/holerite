@@ -60,6 +60,9 @@ export class HoleriteDatabase {
     const cols=new Set((this.db.prepare('PRAGMA table_info(employees)').all() as Row[]).map(c=>String(c.name)));
     const added=[
       ['registration',"TEXT NOT NULL DEFAULT ''"],
+      ['sector',"TEXT NOT NULL DEFAULT ''"],
+      ['job_site',"TEXT NOT NULL DEFAULT ''"],
+      ['cost_center',"TEXT NOT NULL DEFAULT ''"],
       ['pis',"TEXT NOT NULL DEFAULT ''"],
       ['work_hours',"TEXT NOT NULL DEFAULT ''"],
       ['bank_name',"TEXT NOT NULL DEFAULT ''"],
@@ -114,7 +117,7 @@ export class HoleriteDatabase {
     return {id:String(row.id),legalName:String(row.legal_name),tradeName:String(row.trade_name),cnpj:String(row.cnpj),address:String(row.address),createdAt:String(row.created_at)};
   }
   private employeeFrom(row: Row): Employee {
-    return {id:String(row.id),companyId:String(row.company_id),name:String(row.name),cpf:String(row.cpf),role:String(row.role),admissionDate:String(row.admission_date),registration:String(row.registration??''),pis:String(row.pis??''),workHours:String(row.work_hours??''),bankName:String(row.bank_name??''),bankBranch:String(row.bank_branch??''),bankAccount:String(row.bank_account??''),pixKey:String(row.pix_key??''),recurringEntries:parseJSON<Employee['recurringEntries']>(row.recurring_entries_json??'[]'),salaryCents:Number(row.salary_cents),dependents:Number(row.dependents),active:!!row.active,createdAt:String(row.created_at)};
+    return {id:String(row.id),companyId:String(row.company_id),name:String(row.name),cpf:String(row.cpf),role:String(row.role),admissionDate:String(row.admission_date),registration:String(row.registration??''),sector:String(row.sector??''),jobSite:String(row.job_site??''),costCenter:String(row.cost_center??''),pis:String(row.pis??''),workHours:String(row.work_hours??''),bankName:String(row.bank_name??''),bankBranch:String(row.bank_branch??''),bankAccount:String(row.bank_account??''),pixKey:String(row.pix_key??''),recurringEntries:parseJSON<Employee['recurringEntries']>(row.recurring_entries_json??'[]'),salaryCents:Number(row.salary_cents),dependents:Number(row.dependents),active:!!row.active,createdAt:String(row.created_at)};
   }
   private payrollFrom(row: Row): PayrollRecord {
     return {id:String(row.id),companyId:String(row.company_id),employeeId:String(row.employee_id),competence:String(row.competence),kind:String(row.kind??'monthly') as PayrollKind,status:String(row.status) as PayrollStatus,paidAt:row.paid_at ? String(row.paid_at):null,details:parseJSON<PayrollDetails>(row.details_json),createdAt:String(row.created_at),updatedAt:String(row.updated_at)};
@@ -174,6 +177,9 @@ export class HoleriteDatabase {
     const id=input.id ? required(input.id,'ID',50):randomUUID();
     const previous=input.id ? this.getEmployee(id) : null;
     const registration=optional(input.registration??previous?.registration??'','Matrícula',40);
+    const sector=optional(input.sector??previous?.sector??'','Setor',100);
+    const jobSite=optional(input.jobSite??previous?.jobSite??'','Obra',120);
+    const costCenter=optional(input.costCenter??previous?.costCenter??'','Centro de custo',100);
     const pis=digits(optional(input.pis??previous?.pis??'','PIS/NIS',20));
     if(pis && pis.length!==11) throw new Error('PIS/NIS deve conter 11 dígitos.');
     const workHours=optional(input.workHours??previous?.workHours??'','Jornada',100);
@@ -191,16 +197,17 @@ export class HoleriteDatabase {
     const createdAt=previous?.createdAt ?? now();
     this.db.prepare(`INSERT INTO employees(
       id,company_id,name,cpf,role,admission_date,salary_cents,dependents,active,created_at,
-      registration,pis,work_hours,bank_name,bank_branch,bank_account,pix_key,recurring_entries_json)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      registration,pis,work_hours,bank_name,bank_branch,bank_account,pix_key,recurring_entries_json,sector,job_site,cost_center)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(id) DO UPDATE SET company_id=excluded.company_id,name=excluded.name,cpf=excluded.cpf,
       role=excluded.role,admission_date=excluded.admission_date,salary_cents=excluded.salary_cents,
       dependents=excluded.dependents,active=excluded.active,registration=excluded.registration,
       pis=excluded.pis,work_hours=excluded.work_hours,bank_name=excluded.bank_name,
       bank_branch=excluded.bank_branch,bank_account=excluded.bank_account,pix_key=excluded.pix_key,
-      recurring_entries_json=excluded.recurring_entries_json`
+      recurring_entries_json=excluded.recurring_entries_json,sector=excluded.sector,
+      job_site=excluded.job_site,cost_center=excluded.cost_center`
     ).run(id,companyId,name,cpf,role,admissionDate,salaryCents,dependents,input.active ? 1:0,createdAt,
-      registration,pis,workHours,bankName,bankBranch,bankAccount,pixKey,JSON.stringify(recurringEntries));
+      registration,pis,workHours,bankName,bankBranch,bankAccount,pixKey,JSON.stringify(recurringEntries),sector,jobSite,costCenter);
     return this.getEmployee(id);
   }
   savePayroll(input: PayrollInput): PayrollRecord {
