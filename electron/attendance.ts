@@ -158,8 +158,8 @@ export class AttendanceStore {
         throw new Error('Ficha alterada por outra operação. Recarregue os dados.');
       const current=this.db.prepare('SELECT source FROM time_days WHERE employee_id=? AND competence=? AND date=?')
         .get(item.employeeId,item.competence,item.day.date) as Row|undefined;
-      if(current?.source==='imported'&&item.day.source==='imported'&&!overwriteImported)
-        throw new Error('Marcação importada já existente em '+item.day.date+'.');
+      if(current&&current.source!=='suggested'&&item.day.source==='imported'&&!overwriteImported)
+        throw new Error('Marcação real já existente em '+item.day.date+'. Use substituição explícita para alterar.');
     }
     this.db.exec('BEGIN IMMEDIATE;');
     try {
