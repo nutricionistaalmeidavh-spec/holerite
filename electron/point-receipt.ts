@@ -32,3 +32,18 @@ export function pointReceiptHTML(sheet:TimeSheet,employee:Employee,company:Compa
     horários NÃO CONFERIDOS não compõem a apuração. A assinatura deve ocorrer após conferir o conteúdo impresso.
     Esta ficha não constitui registrador eletrônico REP nem arquivo oficial AEJ/AFD.</footer></body></html>`;
 }
+
+/** Cada funcionário ocupa sua própria página; não é um comprovante de REP. */
+export function pointReceiptBatchHTML(items:Array<{sheet:TimeSheet;employee:Employee;company:Company}>):string {
+  if(!items.length)throw new Error('Selecione funcionários para imprimir.');
+  const first=pointReceiptHTML(items[0].sheet,items[0].employee,items[0].company);
+  const style=first.match(/<style>([\s\S]*?)<\/style>/)?.[1]||'';
+  const pages=items.map(({sheet,employee,company})=>{
+    const source=pointReceiptHTML(sheet,employee,company);
+    const body=source.match(/<body>([\s\S]*?)<\/body>/)?.[1];
+    if(!body)throw new Error('Ficha inválida para impressão.');
+    return '<section class="point-page">'+body+'</section>';
+  }).join('');
+  return '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Fichas de ponto em lote</title><style>'+style+
+    '.point-page{break-after:page;page-break-after:always}.point-page:last-child{break-after:auto;page-break-after:auto}</style></head><body>'+pages+'</body></html>';
+}
