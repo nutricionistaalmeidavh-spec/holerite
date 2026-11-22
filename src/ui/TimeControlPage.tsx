@@ -19,6 +19,10 @@ const importFields:Array<{key:ImportField;label:string}>=[
 const duration=(value:number)=>String(Math.floor(Math.abs(value)/60)).padStart(2,'0')+':'+String(Math.abs(value)%60).padStart(2,'0');
 const money=(value:number)=>(value/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const dayText=(d:string)=>d.slice(-2)+'/'+d.slice(5,7);
+function actualHours(day:PointDay):string {
+  if(day.kind!=='work'||day.source==='suggested'||!day.start||!day.breakStart||!day.breakEnd||!day.end)return '—';
+  try{return duration(workedMinutes(day));}catch{return '—';}
+}
 const weekdays=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 type View='individual'|'matrix'|'import'|'settings';
 
@@ -251,7 +255,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
             {fields.map((field,f)=> <td key={field}><input type="time" value={day[field]} disabled={busy||locked||day.kind!=='work'}
               aria-label={timeLabel[field]+' '+row.key} onChange={e=>matrixEdit(row.key,row.day,{[field]:e.target.value})}
               onPaste={event=>{const text=event.clipboardData.getData('text/plain');if(text.includes('\t')||text.includes('\n')){event.preventDefault();pasteMatrix(text,index,f);}}}/></td>)}
-            <td>{day.kind==='work'&&day.source!=='suggested'&&day.start&&day.breakStart&&day.breakEnd&&day.end?duration(workedMinutes(day)):'—'}</td>
+            <td>{actualHours(day)}</td>
             <td><input value={day.notes} disabled={busy||locked} maxLength={500} aria-label={'Observações '+row.key}
               onChange={e=>matrixEdit(row.key,row.day,{notes:e.target.value})}/></td>
           </tr>;
