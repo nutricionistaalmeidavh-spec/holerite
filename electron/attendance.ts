@@ -306,7 +306,7 @@ export class AttendanceStore {
   addAttachment(employeeId:string,date:string,filename:string,mime:string,content:Uint8Array):
     {id:string;employeeId:string;date:string;filename:string;mime:string;size:number;createdAt:string} {
     const person=this.employee(employeeId);
-    if(!/^20\\d{2}-\\d{2}-\\d{2}$/.test(date)||!validMonth(date.slice(0,7))||!content||content.byteLength<5||content.byteLength>10*1024*1024)
+    if(!/^20\d{2}-\d{2}-\d{2}$/.test(date)||!validMonth(date.slice(0,7))||!content||content.byteLength<5||content.byteLength>10*1024*1024)
       throw new Error('Data ou arquivo de anexo inválido (até 10 MB).');
     this.requireEnabled(String(person.company_id));
     const ext=filename.toLowerCase().split('.').pop();
