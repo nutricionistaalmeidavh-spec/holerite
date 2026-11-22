@@ -5,6 +5,14 @@ import {DatabaseSync} from 'node:sqlite';
 import {mkdtempSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {defaultSchedule,previewMonth} from '../src/shared/time';
+
+const closeMonthlyPoint=(db:HoleriteDatabase,employeeId:string,competence:string)=>{
+  const days=previewMonth(competence,defaultSchedule())
+    .map(day=>day.kind==='work'?{...day,source:'manual' as const}:day);
+  db.attendance.saveMatrix(days.map(day=>({employeeId,competence,day})));
+  db.attendance.close(employeeId,competence);
+};
 
 const entry = {id:'bonus',code:'BON',description:'Adicional recorrente',kind:'earning' as const,amountCents:12000,inssBase:true,irBase:true,fgtsBase:true};
 const employeeInput = (companyId:string, name:string, cpf:string) => ({
@@ -68,6 +76,8 @@ test('generate month in batch only for active missing employees and reuse recurr
   const first=db.saveEmployee({...employeeInput(company.id,'Ana','12345678909'),recurringEntries:[entry]});
   const second=db.saveEmployee(employeeInput(company.id,'Bruno',''));
   db.saveEmployee({...employeeInput(company.id,'Inativo',''),active:false});
+  closeMonthlyPoint(db,first.id,'2026-11');
+  closeMonthlyPoint(db,second.id,'2026-11');
   const manual=db.savePayroll({employeeId:first.id,competence:'2026-11',entries:[],taxMode:'manual'});
   const count=db.generateMonthlyBatch({companyId:company.id,competence:'2026-11',taxMode:'automatic'});
   assert.deepEqual(count,{created:1,skipped:1});
@@ -76,6 +86,8 @@ test('generate month in batch only for active missing employees and reuse recurr
   assert.equal(fresh.details.totals.grossCents,300000);
   assert.equal(db.getPayroll(manual.id).details.totals.grossCents,300000);
   assert.deepEqual(db.generateMonthlyBatch({companyId:company.id,competence:'2026-11',taxMode:'automatic'}),{created:0,skipped:2});
+  closeMonthlyPoint(db,first.id,'2026-12');
+  closeMonthlyPoint(db,second.id,'2026-12');
   const next=db.generateMonthlyBatch({companyId:company.id,competence:'2026-12',taxMode:'automatic'});
   assert.deepEqual(next,{created:2,skipped:0});
   const newSlip=db.snapshot().payrolls.find(p=>p.employeeId===first.id&&p.competence==='2026-12')!;
