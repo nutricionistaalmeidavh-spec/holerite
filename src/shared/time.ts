@@ -93,9 +93,9 @@ export function isScheduledDay(date:string,schedule:WorkSchedule):boolean {
   }
   return schedule.weekdays.includes(weekday(date));
 }
-export interface PointIssue {date:string;code:'SUGGESTED'|'MISSING_PUNCHES'|'ABSENCE_WITHOUT_REASON'|'LONG_SHIFT';message:string;}
+export interface PointIssue {date:string;code:'SUGGESTED'|'MISSING_PUNCHES'|'ABSENCE_WITHOUT_REASON'|'LONG_SHIFT'|'MISSING_DAY';message:string;}
 /** Avisos informativos; nunca impedem conferência, fechamento ou apuração. */
-export function diagnosePointDays(days:PointDay[]):PointIssue[] {
+export function diagnosePointDays(days:PointDay[],schedule?:WorkSchedule,competence?:string):PointIssue[] {
   const issues:PointIssue[]=[];
   for(const day of days){
     if(day.source==='suggested')issues.push({date:day.date,code:'SUGGESTED',message:'Horário gerado ainda não incluído na apuração'});
@@ -106,6 +106,16 @@ export function diagnosePointDays(days:PointDay[]):PointIssue[] {
     if(day.kind==='work'&&[day.start,day.breakStart,day.breakEnd,day.end].every(Boolean)){
       try {if(workedMinutes(day)>720)issues.push({date:day.date,code:'LONG_SHIFT',message:'Jornada acima de 12 horas; conferir'});}
       catch {/* A validação normal permanece na gravação. */}
+    }
+  }
+  if(schedule&&competence&&validMonth(competence)){
+    const known=new Set(days.map(day=>day.date));
+    const [year,month]=competence.split('-').map(Number);
+    const last=new Date(Date.UTC(year,month,0)).getUTCDate();
+    for(let day=1;day<=last;day++){
+      const date=competence+'-'+String(day).padStart(2,'0');
+      if(!known.has(date)&&isScheduledDay(date,schedule)&&!isHoliday(date,schedule))
+        issues.push({date,code:'MISSING_DAY',message:'Dia previsto sem lançamento de ponto'});
     }
   }
   return issues;
