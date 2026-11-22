@@ -120,3 +120,14 @@ test('legacy employee edits preserve existing extra fields when omitted',()=>{
   assert.deepEqual(current.recurringEntries,[entry]);
   db.close();
 });
+
+test('cadastro opcional de setor obra e centro de custo persiste no funcionario',()=>{
+  const db=new HoleriteDatabase(':memory:');
+  try{
+    const company=db.saveCompany({legalName:'Obra Alfa',tradeName:'',cnpj:'',address:''});
+    const employee=db.saveEmployee({companyId:company.id,name:'Carlos Obra',cpf:'12345678909',role:'Ajudante',admissionDate:'2026-01-01',salaryCents:250000,dependents:0,active:true,sector:'Campo',jobSite:'Obra A',costCenter:'CC001'});
+    assert.equal(employee.sector,'Campo');
+    assert.equal(db.getEmployee(employee.id).jobSite,'Obra A');
+    assert.equal(db.snapshot().employees[0].costCenter,'CC001');
+  }finally{db.close();}
+});
