@@ -1,0 +1,29 @@
+name: Consolidate GitHub release assets
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: artisys-holerites-release-asset-repair
+  cancel-in-progress: false
+
+jobs:
+  consolidate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verificar script de reparo
+        run: bash -n scripts/consolidate-release-assets.sh
+      - name: Corrigir releases duplicadas da última versão
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/consolidate-release-assets.sh
