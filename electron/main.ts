@@ -63,7 +63,7 @@ async function printTime(employeeId:string,competence:string,action:'pdf'|'print
 }
 
 async function printTimeBatch(companyId:string,competence:string,employeeIds:string[],action:'pdf'|'print'):Promise<boolean>{
-  if(!/^20\\d{2}-(0[1-9]|1[0-2])$/.test(competence))throw new Error('Competência inválida.');
+  if(!/^20\d{2}-(0[1-9]|1[0-2])$/.test(competence))throw new Error('Competência inválida.');
   const available=storage.snapshot().employees.filter(employee=>employee.companyId===companyId&&employee.active);
   const ids=employeeIds.length?[...new Set(employeeIds)]:available.map(employee=>employee.id);
   if(!ids.length||ids.length>500)throw new Error('Selecione de 1 a 500 funcionários.');
@@ -185,7 +185,7 @@ function bindIPC() {
         const p=people.get(s.employeeId);
         return [s.employeeName,p?.sector||'',p?.jobSite||'',p?.costCenter||'',s.competence,String(s.summary.workedMinutes),String(s.summary.overtimeMinutes),String(s.summary.nightMinutes),String(s.summary.lateMinutes),String(s.summary.absences),String(s.summary.bankMinutes),String(s.summary.dsrCents??0)];
       })];
-    const quote=(value:string)=>'"'+(/^[=+@\-\t\r]/.test(value)?"'"+value:value).replace(/"/g,'""')+'"';
+    const quote=(value:string)=>'"'+(/^[=+@-]/.test(value)?"'"+value:value).replace(/"/g,'""')+'"';
     await writeFile(result.filePath,'\uFEFF'+rows.map(r=>r.map(quote).join(';')).join('\r\n'),'utf8');
     return true;
   });
