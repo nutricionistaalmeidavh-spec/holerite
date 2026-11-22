@@ -92,9 +92,8 @@ export class HoleriteDatabase {
   }
   applyTimeToPayroll(employeeId:string,competence:string): PayrollRecord {
     const sheet=this.attendance.getSheet(employeeId,competence);
-    if(sheet.status!=='closed')throw new Error('Feche e confira a ficha de ponto antes de integrar com a folha.');
     const employee=this.getEmployee(employeeId);
-    const schedule=this.attendance.getClosedSchedule(employeeId,competence);
+    const schedule=sheet.status==='closed'?this.attendance.getClosedSchedule(employeeId,competence):this.attendance.getSchedule(employeeId);
     const pointItems=payrollEntriesFromPoint(competence,sheet.summary,schedule);
     const original=this.db.prepare("SELECT * FROM payrolls WHERE employee_id=? AND competence=? AND kind='monthly'")
       .get(employeeId,competence) as Row|undefined;
@@ -216,15 +215,14 @@ export class HoleriteDatabase {
     const kind=input.kind??'monthly';
     if(!['monthly','vacation','thirteenth-first','thirteenth-second','termination'].includes(kind))throw new Error('Tipo de folha inválido.');
     if(original && original.kind!==kind)throw new Error('Não é possível alterar o tipo de uma folha existente.');
-    // In the new point-first workflow, monthly receipts can only originate from
-    // a closed attendance period; preserve editing old drafts created before the pivot.
-    if(kind==='monthly'&&!original&&this.attendance.getSheet(employee.id,input.competence).status!=='closed')
-      throw new Error('Feche e confira a ficha de ponto antes de gerar o holerite mensal.');
+    // Point-first is a guided flow, not a blocker: only reviewed/imported/manual marks affect payroll.
     const calculatedEntries=kind==='monthly'&&!original
       ?[
         ...input.entries.filter(entry=>!entry.id.startsWith('ponto-'+input.competence+'-')),
         ...payrollEntriesFromPoint(input.competence,this.attendance.getSheet(employee.id,input.competence).summary,
-          this.attendance.getClosedSchedule(employee.id,input.competence))
+          this.attendance.getSheet(employee.id,input.competence).status==='closed'
+            ?this.attendance.getClosedSchedule(employee.id,input.competence)
+            :this.attendance.getSchedule(employee.id))
       ]
       :input.entries;
     const calculation=kind==='monthly' ? calculatePayroll({salaryCents,competence:input.competence,dependents:employee.dependents,entries:calculatedEntries,taxMode:input.taxMode}) :
@@ -260,10 +258,8 @@ export class HoleriteDatabase {
         const employee=this.employeeFrom(row);
         const existing=this.db.prepare("SELECT id FROM payrolls WHERE employee_id=? AND competence=? AND kind='monthly'").get(employee.id,competence);
         if(existing){skipped++;continue;}
-        if(this.attendance.getSheet(employee.id,competence).status!=='closed')
-          throw new Error('Ficha de ponto não fechada para '+employee.name+'. Conclua a apuração antes de gerar holerites em lote.');
-        const schedule=this.attendance.getClosedSchedule(employee.id,competence);
         const sheet=this.attendance.getSheet(employee.id,competence);
+        const schedule=sheet.status==='closed'?this.attendance.getClosedSchedule(employee.id,competence):this.attendance.getSchedule(employee.id);
         const pointEntries=payrollEntriesFromPoint(competence,sheet.summary,schedule);
         this.savePayroll({employeeId:employee.id,competence,kind:'monthly',taxMode:input.taxMode,entries:[...(employee.recurringEntries??[]),...pointEntries]});
         created++;
