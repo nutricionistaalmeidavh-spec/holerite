@@ -91,3 +91,10 @@ test('diagnostico aponta sugestoes pendentes e marcações incompletas sem trava
   assert.ok(issues.some(i=>i.code==='MISSING_PUNCHES'));
   assert.ok(issues.some(i=>i.code==='SUGGESTED'));
 });
+
+test('conferencia aponta dias de trabalho sem lancamento, sem impedir a apuracao',async()=>{
+  const {diagnosePointDays}=await import('./time');
+  const issues=diagnosePointDays([],defaultSchedule(),'2026-11');
+  assert.ok(issues.some(issue=>issue.code==='MISSING_DAY'&&issue.date==='2026-11-03'));
+  assert.ok(!issues.some(issue=>issue.date==='2026-11-20'));
+});
