@@ -49,3 +49,45 @@ nav{display:flex;flex-direction:column;gap:4px}.nav-link{border:0;background:tra
 .employee-recurring .entry-grid{grid-template-columns:65px minmax(90px,1.6fr) minmax(95px,1fr) minmax(100px,1fr) 30px}
 .employee-recurring .no-recurring{font-size:12px;color:#74839a;border:1px dashed #cedae6;padding:13px;border-radius:9px}
 @media(max-width:740px){.employee-recurring .entry-grid{grid-template-columns:55px 1fr 1fr 30px}.employee-recurring .entry-grid .field:nth-child(2){grid-column:2/-1}.employee-recurring .entry-grid .field:nth-child(3){grid-column:1/3}.employee-recurring .entry-grid .field:nth-child(4){grid-column:3/4}}
+
+/* Módulo opcional de ponto: formulários de baixo custo visual, matriz editável. */
+.time-page{display:flex;flex-direction:column;gap:16px;min-width:0}
+.time-page .card{padding:20px;overflow:hidden}
+.time-page p{color:#52627a;line-height:1.55;margin:5px 0 13px}
+.time-settings-bar{display:flex;gap:16px;align-items:center;justify-content:space-between}
+.time-settings-bar h2{font-size:19px}
+.time-settings-bar h2 small{font-size:11px;color:#6f7e94;font-weight:550;margin-left:8px}
+.time-module-toggle{display:flex;gap:9px;align-items:center;white-space:nowrap;font-weight:650}
+.time-module-toggle input,.time-weekdays input{width:17px;height:17px;accent-color:#4267e9}
+.time-toolbar,.time-actions{display:flex;align-items:center;flex-wrap:wrap;gap:9px}
+.time-toolbar{padding:0 1px}
+.time-sheet h2,.time-settings h2{font-size:18px;margin:0 0 8px}
+.time-filters{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap}
+.time-filters .field{min-width:260px;max-width:460px;flex:1}
+.time-status{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;background:#edf2fa;border-radius:10px;padding:14px;margin:12px 0}
+.time-status span{font-weight:700}.time-status small{font-size:12px;color:#425679}
+.time-mini-config{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;margin:14px 0}
+.time-mini-config strong{width:100%;font-size:13px}.time-mini-config label{display:flex;flex-direction:column;gap:5px;font-size:11px;color:#64748b}
+.time-mini-config input{max-width:123px}
+.time-page input,.time-page select{border:1px solid #cbd5e1;border-radius:7px;padding:7px 8px;background:#fff}
+.time-page input[type=checkbox]{width:17px;height:17px;padding:0}
+.time-form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:11px;margin:18px 0}
+.time-weekdays{display:flex;gap:14px;flex-wrap:wrap;margin:12px 0 18px}
+.time-weekdays label{display:flex;align-items:center;gap:5px}
+.time-table{margin:14px 0;overflow:auto;max-height:550px}
+.time-table .data-table{min-width:970px}
+.time-table td,.time-table th{padding:7px 5px}
+.time-table input[type=time]{min-width:108px;max-width:115px}
+.time-table input:not([type=time]){min-width:130px}
+.time-table select{min-width:113px}
+.time-table .time-suggested{background:#f8fafc}
+.time-source{font-size:10px;font-weight:700;white-space:nowrap;color:#4267e9}
+.time-source.suggested{color:#a26a1b}
+.time-source.imported{color:#138262}
+.time-confirm{font-size:11px;padding:5px 9px}
+.time-pagination{display:flex;justify-content:flex-end;align-items:center;gap:9px}
+.time-audit{margin-top:15px;border-top:1px solid #e1e7ef;padding-top:12px;font-size:12px}
+.time-audit ul{padding-left:22px;max-height:200px;overflow:auto}
+.time-import-errors{max-height:165px;overflow:auto;color:#b42318;background:#fff5f5;padding:12px 28px;border-radius:8px}
+.time-legal{font-size:12px!important;color:#68788d!important}
+@media(max-width:750px){.time-page .card{padding:13px}.time-settings-bar{align-items:flex-start;flex-direction:column}.time-toolbar{gap:6px}.time-toolbar .btn{font-size:12px}}
