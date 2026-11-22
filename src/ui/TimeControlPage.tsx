@@ -3,7 +3,7 @@ import type {Employee} from '../shared/types';
 import type {TimeConfig,TimeSheet,MatrixChange} from '../../electron/attendance';
 import type {ImportChoice,ImportMapping,ImportPreview,ImportField} from '../../electron/time-import';
 import type {PointDay,WorkSchedule} from '../shared/time';
-import {defaultSchedule,previewMonth} from '../shared/time';
+import {defaultSchedule,previewMonth,workedMinutes} from '../shared/time';
 
 const kindLabels:Record<PointDay['kind'],string>={
   work:'Trabalho',absence:'Falta',vacation:'Férias',holiday:'Feriado',rest:'Folga',leave:'Afastamento'
@@ -239,7 +239,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
         <p>Uma linha por funcionário/dia. Cole várias células do Excel nos campos de horário; linhas já fechadas ficam protegidas.</p>
         <input placeholder="Filtrar por nome ou data" aria-label="Buscar na matriz" value={filter} onChange={e=>{setFilter(e.target.value);setPage(0);}}/>
         <div className="table-scroll time-table"><table className="data-table"><thead><tr>
-          <th>Funcionário</th><th>Data</th><th>Tipo</th><th>Entrada</th><th>Saída almoço</th><th>Retorno</th><th>Saída</th><th>Observações</th>
+          <th>Funcionário</th><th>Data</th><th>Tipo</th><th>Entrada</th><th>Saída almoço</th><th>Retorno</th><th>Saída</th><th>Horas reais</th><th>Observações</th>
         </tr></thead><tbody>{visibleMatrixRows.map((row,index)=>{
           const day=matrixDrafts[row.key]||row.day;
           const locked=matrix.find(s=>s.employeeId===row.employeeId)?.status==='closed';
@@ -251,6 +251,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
             {fields.map((field,f)=> <td key={field}><input type="time" value={day[field]} disabled={busy||locked||day.kind!=='work'}
               aria-label={timeLabel[field]+' '+row.key} onChange={e=>matrixEdit(row.key,row.day,{[field]:e.target.value})}
               onPaste={event=>{const text=event.clipboardData.getData('text/plain');if(text.includes('\t')||text.includes('\n')){event.preventDefault();pasteMatrix(text,index,f);}}}/></td>)}
+            <td>{day.kind==='work'&&day.source!=='suggested'&&day.start&&day.breakStart&&day.breakEnd&&day.end?duration(workedMinutes(day)):'—'}</td>
             <td><input value={day.notes} disabled={busy||locked} maxLength={500} aria-label={'Observações '+row.key}
               onChange={e=>matrixEdit(row.key,row.day,{notes:e.target.value})}/></td>
           </tr>;
