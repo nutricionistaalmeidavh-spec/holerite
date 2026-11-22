@@ -34,7 +34,7 @@ Aplicativo **desktop offline para Windows** com foco em **controle de ponto**: c
 ## Controle de ponto — núcleo do sistema (P0/P1/P2)
 
 - Funcionalidade principal, disponível automaticamente a todas as empresas, inclusive bases antigas. Não existe ativação opcional.
-- Ficha manual, geração semiautomática com variação opcional, **conferência do mês/equipe em lote**, quatro horários diários, ocorrências e histórico auditável. O sistema distingue sugestões de horários gerados conferidos.
+- Ficha manual e geração semiautomática com variação opcional; ao gerar, um diálogo permite **incluir imediatamente na apuração** ou **gerar sem incluir**, além da conferência posterior em lote por mês/equipe. A origem dos horários gerados permanece auditável.
 - Matriz da equipe, colagem do Excel, importação CSV/XLSX com mapeamento e validação, exportação de planilhas e ficha PDF.
 - Apuração de jornada, horas extras, atraso, ausências, adicional noturno e banco de horas. Fechamento é opcional, e as rubricas podem ser integradas ao holerite mensal ainda em rascunho, sem duplicação.
 - Funciona totalmente offline com SQLite local; usa [ExcelJS](https://github.com/exceljs/exceljs) (MIT) para planilhas.
