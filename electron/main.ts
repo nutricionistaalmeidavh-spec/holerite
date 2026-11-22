@@ -7,12 +7,15 @@ import { HoleriteDatabase } from './database';
 import { receiptHTML } from './receipt';
 import {pointReceiptHTML,pointReceiptBatchHTML} from './point-receipt';
 import {TimeImporter} from './time-import';
+import {EmployeeImporter,EMPLOYEE_IMPORT_COLUMNS} from './employee-import';
+import ExcelJS from 'exceljs';
 import {exportTimeFile} from './time-export';
 import type {PayrollRecord} from '../src/shared/types';
 
 let mainWindow: BrowserWindow | null = null;
 let storage: HoleriteDatabase;
 let timeImporter: TimeImporter;
+let employeeImporter: EmployeeImporter;
 
 const formatFilename = (p: PayrollRecord) => {
   const name = p.details.employee.name.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9_-]+/gi,'-').slice(0,45);
@@ -110,6 +113,24 @@ function bindIPC() {
   bind('snapshot',()=>storage.snapshot());
   bind('save-company',v=>storage.saveCompany(v));
   bind('save-employee',v=>storage.saveEmployee(v));
+  bind('employee-import-choose',async(companyId:string)=>{
+    const result=await dialog.showOpenDialog(mainWindow!,{title:'Importar funcionários',properties:['openFile'],filters:[{name:'Planilhas',extensions:['csv','xlsx']}]});
+    if(result.canceled||!result.filePaths[0])return null;
+    return employeeImporter.choose(companyId,result.filePaths[0]);
+  });
+  bind('employee-import-preview',(v:any)=>employeeImporter.preview(v.token,v.mapping));
+  bind('employee-import-commit',(v:any)=>employeeImporter.commit(v.token,v.mapping));
+  bind('employee-import-template',async()=>{
+    const result=await dialog.showSaveDialog(mainWindow!,{title:'Salvar modelo de funcionários',defaultPath:'Modelo-Funcionarios.xlsx',filters:[{name:'Excel',extensions:['xlsx']}]});
+    if(result.canceled||!result.filePath)return false;
+    const workbook=new ExcelJS.Workbook();
+    const sheet=workbook.addWorksheet('Funcionários');
+    sheet.addRow(EMPLOYEE_IMPORT_COLUMNS.map(column=>column.label.replace(' *','')));
+    sheet.getRow(1).font={bold:true};
+    sheet.columns=EMPLOYEE_IMPORT_COLUMNS.map(column=>({width:Math.max(18,column.label.length+4)}));
+    await workbook.xlsx.writeFile(result.filePath);
+    return true;
+  });
   bind('generate-monthly-batch',v=>storage.generateMonthlyBatch(v));
   bind('save-payroll',v=>storage.savePayroll(v));
   bind('finalize',v=>storage.finalizePayroll(v));
@@ -301,6 +322,7 @@ app.whenReady().then(async()=>{
   await mkdir(directory,{recursive:true});
   storage=new HoleriteDatabase(join(directory,'holerites.sqlite'));
   timeImporter=new TimeImporter(storage.attendance,()=>storage.snapshot().employees);
+  employeeImporter=new EmployeeImporter(storage);
   bindIPC();
   await createMain();
   checkUpdatesAtStartup();
