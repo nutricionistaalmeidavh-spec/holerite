@@ -121,20 +121,13 @@ try {
   await verifyNoAlert();
   await screenshot('09-funcionarios-lista', 'Funcionários: lista preenchida');
 
-  // O ponto é o núcleo do produto. Conclua a ficha antes de começar a folha mensal.
+  // Conferência administrativa única de todos os dias, sem confirmar cada batida.
   await go('Controle de ponto');
   await page.locator('.time-filters select').selectOption({index:1});
   await page.getByRole('button', {name:'Gerar calendário sugerido'}).click();
-  const confirmWorkday=page.getByRole('button',{name:'Conferir',exact:true});
-  await confirmWorkday.first().waitFor({state:'visible'});
-  let confirmed=0;
-  while(await confirmWorkday.count()){
-    await confirmWorkday.first().click();
-    if(++confirmed>31)throw new Error('Número inválido de dias úteis para conferência');
-  }
-  assert.ok(confirmed>=18,'Nenhum calendário de dias úteis foi conferido.');
-  await page.getByRole('button',{name:/Salvar \d+ alteração/}).click();
-  await page.getByRole('button',{name:'Fechar competência'}).click();
+  await page.getByRole('button', {name:'Conferir mês em lote'}).click();
+  await page.getByText(/dias conferidos em lote/).waitFor();
+  assert.equal(await page.getByRole('button',{name:'Conferir',exact:true}).count(),0);
   await page.getByRole('button',{name:'Gerar holerite do ponto'}).click();
   await page.locator('.editor').waitFor({state:'visible'});
   await verifyNoAlert();
@@ -190,7 +183,7 @@ try {
   await go('Controle de ponto');
   await screenshot('25-ponto-principal', 'Controle de ponto é a tela principal, sem ativação opcional');
   await page.getByRole('tab', {name:'Ficha individual'}).waitFor();
-  await screenshot('26-ponto-fechado', 'Ficha conferida e fechada antes do holerite');
+  await screenshot('26-ponto-conferido-lote', 'Ficha conferida em lote sem bloqueio antes do holerite');
   await page.getByRole('tab', {name:'Configurações'}).click();
   await screenshot('27-ponto-configuracoes', 'Jornada e parâmetros da competência');
   await page.getByRole('tab', {name:'Matriz da equipe'}).click();
