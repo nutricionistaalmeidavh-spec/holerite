@@ -158,7 +158,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
         <h2>Controle de ponto <small>início da folha mensal</small></h2>
         <p>Preencha ou importe os horários, confira o mês inteiro em lote e imprima para o funcionário assinar. O fechamento não bloqueia a emissão do holerite.</p>
         <ol className="time-steps" aria-label="Fluxo mensal">
-          <li>1. Jornada</li><li>2. Marcações</li><li>3. Conferência</li><li>4. Fechamento</li><li>5. Holerite</li>
+          <li>1. Jornada</li><li>2. Preenchimento</li><li>3. Conferência em lote</li><li>4. Impressão e assinatura</li><li>5. Holerite</li>
         </ol>
       </div>
     </section>
@@ -260,7 +260,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
           <button className="btn btn-secondary" disabled={busy} onClick={()=>void run(async()=>{await window.holerites.exportTimeMatrix({companyId,competence,format:'xlsx'});})}>Exportar Excel</button>
           <button className="btn btn-secondary" disabled={busy} onClick={()=>void run(async()=>{await window.holerites.exportTimeMatrix({companyId,competence,format:'csv'});})}>Exportar CSV</button>
         </div>
-        <p>Uma linha por funcionário/dia. Cole várias células do Excel nos campos de horário; linhas já fechadas ficam protegidas.</p>
+        <p>Uma linha por funcionário/dia. Cole do Excel, salve ajustes e confira em lote as sugestões geradas para a equipe. A assinatura será feita no documento impresso.</p>
         <input placeholder="Filtrar por nome ou data" aria-label="Buscar na matriz" value={filter} onChange={e=>{setFilter(e.target.value);setPage(0);}}/>
         <div className="table-scroll time-table"><table className="data-table"><thead><tr>
           <th>Funcionário</th><th>Data</th><th>Tipo</th><th>Entrada</th><th>Saída almoço</th><th>Retorno</th><th>Saída</th><th>Horas reais</th><th>Observações</th>
