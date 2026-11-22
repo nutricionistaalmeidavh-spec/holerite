@@ -143,6 +143,7 @@ export interface EmployeeInput {
 
 export interface MonthlyBatchResult {created:number; skipped:number;}
 export interface MonthlyBatchInput {companyId:string;competence:string;taxMode:TaxMode;}
+export interface PointAttachment {id:string;employeeId:string;date:string;filename:string;mime:string;size:number;createdAt:string;}
 export interface HoleriteAPI {
   snapshot(): Promise<StateSnapshot>;
   saveCompany(input: CompanyInput & {id?: string}): Promise<Company>;
@@ -177,6 +178,10 @@ export interface HoleriteAPI {
   exportTimeMatrix(input:{companyId:string;competence:string;format:'csv'|'xlsx'|'template'}):Promise<boolean>;
   exportTimePDF(input:{employeeId:string;competence:string}):Promise<boolean>;
   printTimeSheet(input:{employeeId:string;competence:string}):Promise<boolean>;
+  getTimeAttachments(input:{employeeId:string;competence:string}):Promise<PointAttachment[]>;
+  addTimeAttachment(input:{employeeId:string;date:string}):Promise<PointAttachment|null>;
+  saveTimeAttachment(input:{employeeId:string;id:string}):Promise<boolean>;
+  removeTimeAttachment(input:{employeeId:string;id:string}):Promise<void>;
   exportTimeReport(input:{companyId:string;competence:string}):Promise<boolean>;
   exportTimeBatchPDF(input:{companyId:string;competence:string;employeeIds:string[]}):Promise<boolean>;
   printTimeBatch(input:{companyId:string;competence:string;employeeIds:string[]}):Promise<boolean>;
