@@ -1,6 +1,6 @@
-# ArtiSys Holerites
+# ArtiSys Controle de Ponto e Holerites
 
-Aplicativo **desktop offline para Windows** para cadastrar empresas e colaboradores, preparar a folha, calcular INSS/IRRF nas competências suportadas e emitir holerites em PDF (duas vias). Sem SaaS, APIs pagas ou serviços externos.
+Aplicativo **desktop offline para Windows** com foco em **controle de ponto**: cadastrar empresas e funcionários, registrar ou importar jornadas, apurar horas, conferir e fechar o mês e, como última etapa, preparar e emitir holerites em PDF. Sem SaaS, APIs pagas ou serviços externos.
 
 ## Stack
 
@@ -13,10 +13,10 @@ Aplicativo **desktop offline para Windows** para cadastrar empresas e colaborado
 
 - Cadastro de múltiplas empresas, colaboradores, salários, cargos, CPF, CNPJ e dependentes.
 - Perfil complementar do funcionário: matrícula, PIS/NIS, jornada, banco, agência, conta, Pix e verbas mensais recorrentes.
-- Gerar mês em lote: cria somente rascunhos de funcionários ativos sem holerite naquela competência, preserva os anteriores e desfaz todo o lote caso haja erro. Rubricas recorrentes aplicam-se apenas ao salário mensal.
+- Gerar mês em lote: cria holerites apenas para funcionários ativos com ficha de ponto fechada na competência, preserva os anteriores e desfaz todo o lote caso haja erro. Rubricas recorrentes aplicam-se apenas ao salário mensal.
 - Migração aditiva do SQLite para os novos campos sem descartar cadastros ou recibos antigos.
 - Cinco tipos de documento por colaborador/competência: **salário mensal, férias, 13º (1ª e 2ª parcelas) e rescisão**.
-- Folha mensal por competência e funcionário; salário-base ajustável na competência sem modificar o cadastro.
+- Holerite mensal é a etapa final: novos documentos requerem ficha de ponto fechada. A edição de rascunhos históricos anteriores à mudança continua disponível. Salário-base ajustável sem modificar o cadastro.
 - Férias: dias gozados, abono pecuniário, terço constitucional e prazo de pagamento indicativo.
 - 13º: avos, adiantamento e separação das incidências entre parcelas.
 - Rescisão: motivo, aviso proporcional, saldo salarial, férias vencidas/proporcionais, 13º proporcional e estimativa de multa FGTS (fora do líquido).
@@ -31,9 +31,9 @@ Aplicativo **desktop offline para Windows** para cadastrar empresas e colaborado
 - Histórico, relatório CSV e backup consistente do SQLite com escolha do local.
 - Sem login obrigatório, telemetria ou assinaturas. O uso da folha continua offline; apenas a checagem opcional de updates precisa de internet.
 
-## Controle de ponto (módulo opcional — P0/P1/P2)
+## Controle de ponto — núcleo do sistema (P0/P1/P2)
 
-- Desativado por padrão, habilitável individualmente por empresa; nunca interfere na emissão de holerites.
+- Funcionalidade principal, disponível automaticamente a todas as empresas, inclusive bases antigas. Não existe ativação opcional.
 - Ficha manual, prévia semiautomática (com variação opcional, **sempre sinalizada como sugestão**), quatro marcações diárias, ocorrências e histórico auditável.
 - Matriz da equipe, colagem do Excel, importação CSV/XLSX com mapeamento e validação, exportação de planilhas e ficha PDF.
 - Apuração de jornada, horas extras, atraso, ausências, adicional noturno e banco de horas; fechamento e integração somente ao holerite mensal em rascunho, sem duplicar rubricas.
