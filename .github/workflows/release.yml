@@ -75,6 +75,21 @@ jobs:
       - name: Verificar tipos e build
         run: npm run build
 
+      - name: Pré-criar a release antes dos uploads paralelos
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          tag="v$version"
+          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
+              --verify-tag --title "$tag" \
+              --notes "ArtiSys Ponto e Folha $tag. Instalador Windows com atualização confirmada pelo usuário." \
+              --latest
+          fi
+
       - name: Gerar NSIS e publicar release com latest.yml
         run: npm run publish:win
         env:
