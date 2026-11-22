@@ -11,6 +11,8 @@ const now=()=>new Date().toISOString();
 const json=<T>(raw:unknown)=>JSON.parse(String(raw)) as T;
 function requiredId(id:string){if(!id||typeof id!=='string'||id.length>50)throw new Error('Identificador inválido.');return id;}
 export class AttendanceStore {
+  private auditActor:string|null=null;
+  setAuditActor(id:string|null):void {this.auditActor=id;}
   constructor(private db:DatabaseSync){
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS time_configs (
@@ -54,6 +56,8 @@ export class AttendanceStore {
         created_at TEXT NOT NULL
       );
     `);
+    const auditColumns=new Set((this.db.prepare('PRAGMA table_info(time_audit)').all() as Row[]).map(row=>String(row.name)));
+    if(!auditColumns.has('actor_id'))this.db.exec('ALTER TABLE time_audit ADD COLUMN actor_id TEXT;');
     // Backwards-compatible migration of the opt-in version: point is now the core.
     this.db.exec('UPDATE time_configs SET enabled=1 WHERE enabled<>1;');
   }
@@ -137,12 +141,12 @@ export class AttendanceStore {
     return employees.map(row=>({...this.getSheet(String(row.id),competence),employeeName:String(row.name)}));
   }
   private audit(employeeId:string,competence:string,action:string,before:unknown,after:unknown,reason='',date:string|null=null){
-    this.db.prepare('INSERT INTO time_audit VALUES (?,?,?,?,?,?,?,?,?)').run(randomUUID(),employeeId,competence,date,
-      action,before?JSON.stringify(before):null,after?JSON.stringify(after):null,reason,now());
+    this.db.prepare('INSERT INTO time_audit(id,employee_id,competence,date,action,before_json,after_json,reason,created_at,actor_id) VALUES (?,?,?,?,?,?,?,?,?,?)').run(randomUUID(),employeeId,competence,date,
+      action,before?JSON.stringify(before):null,after?JSON.stringify(after):null,reason,now(),this.auditActor);
   }
   auditHistory(employeeId:string,competence:string):Row[]{
     this.employee(employeeId);
-    return this.db.prepare('SELECT date,action,before_json,after_json,reason,created_at FROM time_audit WHERE employee_id=? AND competence=? ORDER BY created_at DESC LIMIT 300').all(employeeId,competence) as Row[];
+    return this.db.prepare('SELECT date,action,before_json,after_json,reason,created_at,actor_id FROM time_audit WHERE employee_id=? AND competence=? ORDER BY created_at DESC LIMIT 300').all(employeeId,competence) as Row[];
   }
   saveMatrix(changes:MatrixChange[],overwriteImported=false):number {
     if(!Array.isArray(changes)||!changes.length||changes.length>30000)throw new Error('Informe de 1 a 30.000 dias por operação.');
