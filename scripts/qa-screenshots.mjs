@@ -158,7 +158,7 @@ try {
   await screenshot('16-rescisao', 'Rescisão: motivo, aviso e verbas');
   await kind('Salário mensal');
   await screenshot('17-mensal-com-recorrencia', 'Folha mensal com verba recorrente pré-preenchida');
-  await page.getByRole('button', {name:'Salvar rascunho'}).click();
+  await page.getByRole('button', {name:/Salvar (rascunho|alterações)/}).click();
   await page.getByRole('button', {name:'Finalizar', exact:true}).waitFor();
   await verifyNoAlert();
   await screenshot('18-rascunho-salvo', 'Holerite mensal salvo em rascunho');
