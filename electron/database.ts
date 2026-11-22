@@ -94,7 +94,7 @@ export class HoleriteDatabase {
     const sheet=this.attendance.getSheet(employeeId,competence);
     if(sheet.status!=='closed')throw new Error('Feche e confira a ficha de ponto antes de integrar com a folha.');
     const employee=this.getEmployee(employeeId);
-    const schedule=this.attendance.getSchedule(employeeId);
+    const schedule=this.attendance.getClosedSchedule(employeeId,competence);
     const pointItems=payrollEntriesFromPoint(competence,sheet.summary,schedule);
     const original=this.db.prepare("SELECT * FROM payrolls WHERE employee_id=? AND competence=? AND kind='monthly'")
       .get(employeeId,competence) as Row|undefined;
