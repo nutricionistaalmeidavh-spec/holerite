@@ -31,6 +31,17 @@ Aplicativo **desktop offline para Windows** para cadastrar empresas e colaborado
 - Histórico, relatório CSV e backup consistente do SQLite com escolha do local.
 - Sem login obrigatório, telemetria ou assinaturas. O uso da folha continua offline; apenas a checagem opcional de updates precisa de internet.
 
+## Controle de ponto (módulo opcional — P0/P1/P2)
+
+- Desativado por padrão, habilitável individualmente por empresa; nunca interfere na emissão de holerites.
+- Ficha manual, prévia semiautomática (com variação opcional, **sempre sinalizada como sugestão**), quatro marcações diárias, ocorrências e histórico auditável.
+- Matriz da equipe, colagem do Excel, importação CSV/XLSX com mapeamento e validação, exportação de planilhas e ficha PDF.
+- Apuração de jornada, horas extras, atraso, ausências, adicional noturno e banco de horas; fechamento e integração somente ao holerite mensal em rascunho, sem duplicar rubricas.
+- Funciona totalmente offline com SQLite local; usa [ExcelJS](https://github.com/exceljs/exceljs) (MIT) para planilhas.
+- **Não é REP homologado, não emite AFD/AEJ e não equivale a marcação eletrônica oficial.** Regras salariais e convencionais requerem conferência profissional.
+
+Instruções, limitações legais e fluxo completo: [Módulo de Controle de Ponto](docs/controle-ponto.md).
+
 ## Desenvolvimento
 
 Requer **Node.js 24+** (use Node 24 no GitHub Actions).
