@@ -229,6 +229,7 @@ function App() {
   const [historyKind,setHistoryKind]=useState<'all'|PayrollKind>('all');
   const [sidebarOpen,setSidebarOpen]=useState(false);
   const [monthlyPointReady,setMonthlyPointReady]=useState<'loading'|'closed'|'open'>('loading');
+  const [pointOverview,setPointOverview]=useState<{total:number;closed:number}|null>(null);
   const reload=async()=>{const snapshot=await window.holerites.snapshot();setData(snapshot);setCompanyId(id=>snapshot.companies.some(c=>c.id===id)?id:(snapshot.companies[0]?.id??''));};
   useEffect(()=>{reload().catch(e=>setError(String(e))).finally(()=>setLoading(false));},[]);
   async function act(task:()=>Promise<unknown>,message?:string|((result:unknown)=>string)) {setBusy(true);setError('');setToast('');try{const result=await task();await reload();if(message)setToast(typeof message==='function'?message(result):message);}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setBusy(false);}}
@@ -236,6 +237,15 @@ function App() {
   const payrolls=useMemo(()=>data.payrolls.filter(p=>!companyId||p.companyId===companyId),[data.payrolls,companyId]);
   const currentPayrolls=payrolls.filter(p=>p.competence===competence);
   const currentNet=currentPayrolls.reduce((n,p)=>n+p.details.totals.netCents,0);
+  useEffect(()=>{
+    if(tab!=='dashboard'||!companyId){setPointOverview(null);return;}
+    let active=true;
+    setPointOverview(null);
+    window.holerites.getTimeMatrix({companyId,competence}).then(rows=>{
+      if(active)setPointOverview({total:rows.length,closed:rows.filter(row=>row.status==='closed').length});
+    }).catch(()=>{if(active)setPointOverview(null);});
+    return ()=>{active=false;};
+  },[tab,companyId,competence]);
   const selectedEmployee=employees.find(e=>e.id===selectedEmployeeId);
   const existing=selectedEmployee&&data.payrolls.find(p=>p.employeeId===selectedEmployee.id&&p.competence===competence&&p.kind===payrollKind);
   const filtered=search.trim().toLowerCase();
@@ -302,7 +312,7 @@ function App() {
               <div className="hero-summary-row"><span>Marcados como pagos</span><b>{currentPayrolls.filter(p=>p.status==='paid').length}</b></div>
             </div>
           </section>
-          <div className="metric-grid"><div className="metric-card"><span>Colaboradores ativos</span><b>{employees.filter(e=>e.active).length}</b><small>Cadastrados na empresa</small><div className="metric-icon"><Icon name="employees"/></div></div><div className="metric-card"><span>Holerites na competência</span><b>{currentPayrolls.length}</b><small>{brDate(competence)}</small><div className="metric-icon"><Icon name="payroll"/></div></div><div className="metric-card featured"><span>Total líquido da folha</span><b>{money(currentNet)}</b><small>Valores dos holerites cadastrados</small><div className="metric-icon"><Icon name="dashboard"/></div></div><div className="metric-card"><span>Pendentes de pagamento</span><b>{currentPayrolls.filter(p=>p.status==='finalized').length}</b><small>Finalizados e não marcados pagos</small><div className="metric-icon"><Icon name="history"/></div></div></div>
+          <div className="metric-grid"><div className="metric-card"><span>Colaboradores ativos</span><b>{employees.filter(e=>e.active).length}</b><small>Cadastrados na empresa</small><div className="metric-icon"><Icon name="employees"/></div></div><div className="metric-card"><span>Fichas fechadas</span><b>{pointOverview?pointOverview.closed:'—'}</b><small>{brDate(competence)} · apuração concluída</small><div className="metric-icon"><Icon name="time"/></div></div><div className="metric-card featured"><span>Ponto aguardando fechamento</span><b>{pointOverview?Math.max(0,pointOverview.total-pointOverview.closed):'—'}</b><small>Colaboradores ativos da competência</small><div className="metric-icon"><Icon name="time"/></div></div><div className="metric-card"><span>Holerites gerados</span><b>{currentPayrolls.length}</b><small>Etapa final após fechamento do ponto</small><div className="metric-icon"><Icon name="payroll"/></div></div></div>
           <div className="dashboard-grid"><section className="card"><div className="card-heading"><div><h2>Últimos holerites</h2><p>Acompanhe os recibos da sua equipe.</p></div><button className="text-action" onClick={()=>navigate('history')}>Ver histórico <Icon name="arrow" size={16}/></button></div>{payrolls.length? <div className="table-scroll"><table className="data-table"><thead><tr><th>Funcionário</th><th>Competência</th><th>Líquido</th><th>Status</th></tr></thead><tbody>{payrolls.slice(0,6).map(p=><tr key={p.id} onClick={()=>{setCompetence(p.competence);setPayrollKind(p.kind??'monthly');selectEmployee(p.employeeId);}} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();setCompetence(p.competence);setPayrollKind(p.kind??'monthly');selectEmployee(p.employeeId);}}} tabIndex={0} aria-label={'Abrir '+payrollKindLabels[p.kind??'monthly']+' de '+p.details.employee.name} className="click-row"><td><strong>{p.details.employee.name}</strong><small>{p.details.employee.role}</small></td><td>{brDate(p.competence)}<small>{payrollKindLabels[p.kind??'monthly']}</small></td><td className="money-cell">{money(p.details.totals.netCents)}</td><td><Status status={p.status}/></td></tr>)}</tbody></table></div>:<Empty title="Nenhum holerite emitido" description="Comece pela ficha de ponto e finalize a apuração para gerar os holerites." action={<Button onClick={()=>navigate('time')} icon="time">Abrir ponto</Button>}/>}</section>
           <section className="card quick-card"><h2>Ações rápidas</h2><p>Atalhos para as tarefas do dia a dia.</p><button onClick={()=>navigate('time')}><span className="quick-icon"><Icon name="time"/></span><span><strong>Controlar ponto</strong><small>Registrar, conferir e fechar o mês</small></span><Icon name="arrow"/></button><button onClick={()=>startKind('vacation')}><span className="quick-icon"><Icon name="history"/></span><span><strong>Férias</strong><small>Terço constitucional e abono</small></span><Icon name="arrow"/></button>
             <button onClick={()=>startKind('thirteenth-first')}><span className="quick-icon"><Icon name="payroll"/></span><span><strong>13º salário</strong><small>Primeira ou segunda parcela</small></span><Icon name="arrow"/></button>
