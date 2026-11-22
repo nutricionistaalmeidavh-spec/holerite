@@ -24,7 +24,7 @@
 - Pode exportar matriz `CSV` ou `XLSX` e gerar modelo `XLSX`.
 
 ## Importação de planilhas
-- Aceita XLSX ou CSV de até 10 MB e 500 linhas por arquivo; CSV com vírgula ou ponto e vírgula.
+- Aceita XLSX ou CSV de até 30 MB e 30.000 linhas por arquivo, com mapeamentos reaproveitados por empresa; CSV com vírgula ou ponto e vírgula.
 - Mapeamento manual de colunas, com sugestões para exportações do Obra na Mão.
 - Identifica colaborador por CPF, matrícula ou nome exato (único na empresa).
 - Prévia de erros e amostras, detecção de linhas duplicadas, datas válidas e quatro horários em ordem.
@@ -40,9 +40,12 @@
 ## Atenção fiscal e legal
 Este é um módulo de **administração/tratamento de jornadas para conferência interna**, **não** um registrador eletrônico REP-C, REP-A ou REP-P homologado. Não gera AFD/AEJ. Não utilizar sugestões como se fossem marcações reais, nem fabricar horários praticados.
 
-O motor trabalha com minutos cronológicos efetivos e não automatiza integralmente a redução ficta noturna, DSR/reflexos, alterações de CCT/ACT, horas extras diferenciadas em feriados, intervalos indenizatórios, sobreavisos ou regras particulares por setor. A política de percentuais e o resultado da folha devem ser conferidos pelo contador/DP.
+O motor calcula minutos cronológicos e dispõe de redução noturna opcional, DSR estimado e percentuais distintos para domingos e feriados. Não substitui revisão de CCT/ACT, reflexos completos, intervalos indenizatórios, sobreavisos ou regras particulares por setor. Feriados estaduais e municipais devem ser cadastrados manualmente. A política de percentuais e o resultado da folha devem ser conferidos pelo contador/DP.
 
 Para desenvolvimentos futuros: integração com arquivos de REPs, regras convencionais versionadas e homologação regulatória separada. Nenhuma dessas extensões é dependência do core gratuito.
+
+## Ampliação P0/P1/P2 (2026-11)
+Consulte [`benchmark-controle-ponto-2026.md`](./benchmark-controle-ponto-2026.md) para impressão de fichas em lote, escalas rotativas, relatórios, anexos locais e perfis de acesso. O fechamento continua opcional e o holerite é a etapa final do fluxo.
 
 ## Testes
 ```bash
