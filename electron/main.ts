@@ -86,6 +86,7 @@ function bindIPC() {
   bind('time-matrix',(v:any)=>storage.attendance.matrix(v.companyId,v.competence));
   bind('time-audit',(v:any)=>storage.attendance.auditHistory(v.employeeId,v.competence));
   bind('time-autofill',(v:any)=>storage.attendance.autofill(v.employeeId,v.competence));
+  bind('time-bulk-review',(v:any)=>storage.attendance.reviewSuggestions(v.employeeIds,v.competence));
   bind('time-save-matrix',(v:any)=>storage.attendance.saveMatrix(v.changes,v.overwriteImported===true));
   bind('time-close',(v:any)=>storage.attendance.close(v.employeeId,v.competence));
   bind('time-reopen',(v:any)=>storage.attendance.reopen(v.employeeId,v.competence,v.reason));
