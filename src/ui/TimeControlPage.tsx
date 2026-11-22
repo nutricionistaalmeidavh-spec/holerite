@@ -26,8 +26,9 @@ function actualHours(day:PointDay):string {
 const weekdays=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 type View='individual'|'matrix'|'import'|'settings';
 
-export function TimeControlPage({companyId,competence,employees,onPayrollUpdated}:{
-  companyId:string;competence:string;employees:Employee[];onPayrollUpdated:()=>void
+export function TimeControlPage({companyId,competence,employees,onPayrollUpdated,initialEmployeeId=''}:{
+  companyId:string;competence:string;employees:Employee[];
+  initialEmployeeId?:string;onPayrollUpdated:(employeeId:string)=>void
 }){
   const [config,setConfig]=useState<TimeConfig|null>(null);
   const [employeeId,setEmployeeId]=useState('');
@@ -48,7 +49,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
   const [notice,setNotice]=useState('');
-  const enabled=!!config?.enabled;
+  const ready=Boolean(config);
   const activeEmployees=useMemo(()=>employees.filter(e=>e.active&&e.companyId===companyId),[employees,companyId]);
 
   const run=async(task:()=>Promise<void>)=>{
@@ -58,28 +59,28 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
   };
   useEffect(()=>{
     let mounted=true;
-    setConfig(null);setEmployeeId('');setSheet(null);setDays([]);setMatrix([]);setMatrixDrafts({});
+    setConfig(null);setEmployeeId(employees.some(e=>e.id===initialEmployeeId&&e.companyId===companyId)?initialEmployeeId:'');setSheet(null);setDays([]);setMatrix([]);setMatrixDrafts({});
     if(companyId)window.holerites.getTimeConfig(companyId).then(c=>{if(mounted){setConfig(c);setSchedule(c.schedule);}}).catch(e=>{if(mounted)setError(String(e));});
     return ()=>{mounted=false;};
   },[companyId]);
   const loadSheet=useCallback(async()=>{
-    if(!employeeId||!enabled)return;
+    if(!employeeId||!ready)return;
     const [result,personSchedule,history,balance]=await Promise.all([
       window.holerites.getTimeSheet({employeeId,competence}),window.holerites.getTimeSchedule(employeeId),
       window.holerites.getTimeAudit({employeeId,competence}),
       window.holerites.getTimeBankBalance({employeeId,competence})
     ]);
     setSheet(result);setDays(result.days);setSchedule(personSchedule);setAudit(history);setBankBalance(balance);
-  },[employeeId,competence,enabled]);
+  },[employeeId,competence,ready]);
   const loadMatrix=useCallback(async()=>{
-    if(!enabled||!companyId)return;
+    if(!ready||!companyId)return;
     const result=await window.holerites.getTimeMatrix({companyId,competence});
     setMatrix(result);setMatrixDrafts({});
-  },[enabled,companyId,competence]);
-  useEffect(()=>{let active=true;if(!employeeId||!enabled){setSheet(null);setDays([]);return;}
+  },[ready,companyId,competence]);
+  useEffect(()=>{let active=true;if(!employeeId||!ready){setSheet(null);setDays([]);return;}
     loadSheet().catch(e=>{if(active)setError(String(e));});return()=>{active=false;};
-  },[loadSheet,employeeId,enabled]);
-  useEffect(()=>{if(view==='matrix'&&enabled)loadMatrix().catch(e=>setError(String(e)));},[view,loadMatrix,enabled]);
+  },[loadSheet,employeeId,ready]);
+  useEffect(()=>{if(view==='matrix'&&ready)loadMatrix().catch(e=>setError(String(e)));},[view,loadMatrix,ready]);
   const changeDay=(date:string,patch:Partial<PointDay>)=>{
     setDays(rows=>rows.map(day=>day.date===date?{...day,...patch,source:'manual' as const,
       ...(patch.kind&&patch.kind!=='work'?{start:'',breakStart:'',breakEnd:'',end:''}:{})}:day));
@@ -96,7 +97,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
   const configure=async(next:TimeConfig)=>{
     if(!companyId)return;
     const configSaved=await window.holerites.setTimeConfig({companyId,config:next});
-    setConfig(configSaved);setNotice('Configurações salvas. O controle de ponto continua opcional.');
+    setConfig(configSaved);setNotice('Parâmetros de jornada salvos para esta empresa.');
   };
   const setScheduleField=<K extends keyof WorkSchedule>(key:K,value:WorkSchedule[K])=>setSchedule(old=>({...old,[key]:value}));
   const matrixRows=useMemo(()=>{
@@ -147,18 +148,17 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
   };
   return <div className="time-page">
     <section className="card time-settings-bar">
-      <div><h2>Controle de ponto <small>módulo opcional</small></h2>
-        <p>O Holerite continua funcionando normalmente com este módulo desativado.</p></div>
-      <label className="time-module-toggle"><input type="checkbox" checked={enabled} disabled={busy||!config}
-        onChange={e=>{if(config){
-          const previous=config,next={...config,enabled:e.target.checked};
-          setConfig(next);
-          void run(async()=>{try{await configure(next);}catch(error){setConfig(previous);throw error;}});
-        }}}/> Ativar para esta empresa</label>
+      <div>
+        <h2>Controle de ponto <small>início da folha mensal</small></h2>
+        <p>Registre a jornada, faça a conferência mensal e gere o holerite a partir dos dados fechados.</p>
+        <ol className="time-steps" aria-label="Fluxo mensal">
+          <li>1. Jornada</li><li>2. Marcações</li><li>3. Conferência</li><li>4. Fechamento</li><li>5. Holerite</li>
+        </ol>
+      </div>
     </section>
     {error&&<div className="error-banner" role="alert">{error}<button aria-label="Fechar erro" onClick={()=>setError('')}>×</button></div>}
     {notice&&<div className="success-banner" role="status">{notice}</div>}
-    {enabled&&<>
+    {ready&&<>
       <div className="time-toolbar" role="tablist" aria-label="Áreas do controle de ponto">
         {([['individual','Ficha individual'],['matrix','Matriz da equipe'],['import','Importar planilha'],['settings','Configurações']] as [View,string][]).map(([v,label])=>
           <button key={v} className={'btn '+(view===v?'btn-primary':'btn-secondary')} aria-selected={view===v} role="tab"
@@ -191,7 +191,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
         <div className="time-filters"><label className="field"><span>Funcionário</span><select value={employeeId} onChange={e=>setEmployeeId(e.target.value)}>
           <option value="">Selecione o funcionário</option>{activeEmployees.map(e=><option key={e.id} value={e.id}>{e.name} · {e.registration||e.cpf}</option>)}
         </select></label><span>Competência: <strong>{competence}</strong></span></div>
-        {!employeeId?<p>Selecione um funcionário para cadastrar, importar, revisar e fechar sua ficha.</p>:sheet&&<>
+        {!employeeId?<p>Selecione um funcionário para preencher ou importar a jornada, conferir e fechar a ficha. O holerite é gerado depois.</p>:sheet&&<>
           <div className="time-status"><span>{selected?.name} · {sheet.status==='closed'?'Fechada':'Rascunho'}</span>
             <small>Trabalhadas {duration(sheet.summary.workedMinutes)} | Extras {duration(sheet.summary.overtimeMinutes)} | Déficit {duration(sheet.summary.deficitMinutes)} | Noturnas {duration(sheet.summary.nightMinutes)} | Saldo banco {bankBalance<0?'-':'+'}{duration(bankBalance)}</small></div>
           <div className="time-mini-config"><strong>Jornada deste funcionário</strong>
@@ -210,7 +210,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
             <button className="btn btn-secondary" disabled={busy} onClick={()=>void run(async()=>{await window.holerites.exportTimePDF({employeeId,competence});})}>PDF</button>
             <button className="btn btn-secondary" disabled={busy} onClick={()=>void run(async()=>{await window.holerites.printTimeSheet({employeeId,competence});})}>Imprimir</button>
             {sheet.status==='draft'?<button className="btn btn-primary" disabled={busy||changedDays.length>0} onClick={()=>{if(window.confirm('Fechar a ficha? Dias úteis sem marcação real ou ocorrência confirmada impedirão o fechamento.'))void run(async()=>{await window.holerites.closeTimeSheet({employeeId,competence});await loadSheet();setNotice('Ficha fechada.');});}}>Fechar competência</button>:
-            <><button className="btn btn-primary" disabled={busy} onClick={()=>void run(async()=>{await window.holerites.applyTimeToPayroll({employeeId,competence});onPayrollUpdated();setNotice('Rubricas de ponto integradas ao rascunho do holerite, sem duplicação.');})}>Enviar para holerite</button>
+            <><button className="btn btn-primary" disabled={busy} onClick={()=>void run(async()=>{await window.holerites.applyTimeToPayroll({employeeId,competence});onPayrollUpdated(employeeId);})}>Gerar holerite do ponto</button>
               <button className="btn btn-secondary" disabled={busy} onClick={()=>{const reason=window.prompt('Justificativa da reabertura (mín. 8 caracteres):');if(reason)void run(async()=>{await window.holerites.reopenTimeSheet({employeeId,competence,reason});await loadSheet();});}}>Reabrir</button></>}
           </div>
           <div className="table-scroll time-table"><table className="data-table"><thead><tr>
@@ -303,8 +303,8 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
         </>}
       </section>}
     </>}
-    {!enabled&&<section className="card"><h3>Módulo desativado</h3>
-      <p>Ative acima para cadastrar jornadas, gerar fichas, importar planilhas e integrar os valores conferidos à folha mensal. O uso de holerites não depende deste módulo.</p>
+    {!ready&&<section className="card"><h3>Preparando controle de ponto</h3>
+      <p>Carregando a configuração de jornada da empresa...</p>
     </section>}
     <p className="time-legal">Ferramenta de administração/tratamento interno. Não substitui REP-C, REP-A, REP-P ou a escrituração oficial. Horas noturnas, reflexos e regras convencionais exigem revisão profissional.</p>
   </div>;
