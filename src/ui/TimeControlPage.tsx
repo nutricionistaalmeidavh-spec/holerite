@@ -1,5 +1,5 @@
 import {useCallback,useEffect,useMemo,useState} from 'react';
-import type {Employee} from '../shared/types';
+import type {Employee,PointAttachment} from '../shared/types';
 import type {TimeConfig,TimeSheet,MatrixChange} from '../../electron/attendance';
 import type {ImportChoice,ImportMapping,ImportPreview,ImportField} from '../../electron/time-import';
 import type {PointDay,WorkSchedule} from '../shared/time';
@@ -48,6 +48,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
   const [preview,setPreview]=useState<ImportPreview|null>(null);
   const [allowReplace,setAllowReplace]=useState(false);
   const [audit,setAudit]=useState<Array<{date:string|null;action:string;reason:string;created_at:string}>>([]);
+  const [attachments,setAttachments]=useState<PointAttachment[]>([]);
   const [bankBalance,setBankBalance]=useState(0);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
@@ -69,12 +70,13 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
   },[companyId]);
   const loadSheet=useCallback(async()=>{
     if(!employeeId||!ready)return;
-    const [result,personSchedule,history,balance]=await Promise.all([
+    const [result,personSchedule,history,balance,documents]=await Promise.all([
       window.holerites.getTimeSheet({employeeId,competence}),window.holerites.getTimeSchedule(employeeId),
       window.holerites.getTimeAudit({employeeId,competence}),
-      window.holerites.getTimeBankBalance({employeeId,competence})
+      window.holerites.getTimeBankBalance({employeeId,competence}),
+      window.holerites.getTimeAttachments({employeeId,competence})
     ]);
-    setSheet(result);setDays(result.days);setSchedule(personSchedule);setAudit(history);setBankBalance(balance);
+    setSheet(result);setDays(result.days);setSchedule(personSchedule);setAudit(history);setBankBalance(balance);setAttachments(documents);
   },[employeeId,competence,ready]);
   const loadMatrix=useCallback(async()=>{
     if(!ready||!companyId)return;
@@ -293,7 +295,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
             <button className="btn btn-primary" disabled={busy} onClick={()=>void run(async()=>{await saveDays();await window.holerites.applyTimeToPayroll({employeeId,competence});onPayrollUpdated(employeeId);})}>Gerar holerite do ponto</button>
           </div>
           <div className="table-scroll time-table"><table className="data-table"><thead><tr>
-            <th>Dia</th><th>Tipo</th><th>Entrada</th><th>Saída almoço</th><th>Retorno</th><th>Saída</th><th>Origem</th><th>Observações</th>
+            <th>Dia</th><th>Tipo</th><th>Entrada</th><th>Saída almoço</th><th>Retorno</th><th>Saída</th><th>Origem</th><th>Observações</th><th>Documentos</th>
           </tr></thead><tbody>{days.map(day=><tr key={day.date} className={day.source==='suggested'?'time-suggested':''}>
             <td>{dayText(day.date)}</td><td><select aria-label={'Tipo '+day.date} disabled={busy||sheet.status==='closed'} value={day.kind} onChange={e=>changeDay(day.date,{kind:e.target.value as PointDay['kind']})}>
               {Object.entries(kindLabels).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></td>
@@ -301,6 +303,18 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
               onChange={e=>changeDay(day.date,{[field]:e.target.value})}/></td>)}
             <td><span className={'time-source '+day.source}>{day.source==='suggested'?'Sugestão':day.source==='reviewed'?'Gerado · conferido':day.source==='imported'?'Importado':'Manual'}</span></td>
             <td><input aria-label={'Observação '+day.date} value={day.notes} maxLength={500} disabled={busy||sheet.status==='closed'} onChange={e=>changeDay(day.date,{notes:e.target.value})}/></td>
+            <td><div className="time-actions">
+              <button className="btn btn-secondary" disabled={busy} onClick={()=>void run(async()=>{
+                const item=await window.holerites.addTimeAttachment({employeeId,date:day.date});
+                if(item)setAttachments(await window.holerites.getTimeAttachments({employeeId,competence}));
+              })}>Anexar</button>
+              {attachments.filter(item=>item.date===day.date).map(item=><span key={item.id}>
+                <button className="btn btn-ghost" title={'Salvar '+item.filename} disabled={busy} onClick={()=>void run(async()=>{await window.holerites.saveTimeAttachment({employeeId,id:item.id});})}>{item.filename}</button>
+                <button className="btn btn-ghost" title={'Remover '+item.filename} disabled={busy} onClick={()=>{
+                  if(window.confirm('Remover o anexo '+item.filename+'?'))void run(async()=>{await window.holerites.removeTimeAttachment({employeeId,id:item.id});setAttachments(await window.holerites.getTimeAttachments({employeeId,competence}));});
+                }}>×</button>
+              </span>)}
+            </div></td>
           </tr>)}</tbody></table></div>
           {!days.length&&<p>Ficha vazia. Use “Gerar calendário sugerido” ou a importação de planilha.</p>}
           {audit.length>0&&<details className="time-audit"><summary>Histórico de alterações ({audit.length})</summary><ul>
