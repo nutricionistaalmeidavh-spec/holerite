@@ -2,6 +2,7 @@ import type {WorkSchedule} from './time';
 import type {AuthState,LocalRole,LocalOperator} from '../../electron/access-control';
 import type {TimeConfig,TimeSheet,MatrixChange} from '../../electron/attendance';
 import type {ImportChoice,ImportPreview,ImportMapping} from '../../electron/time-import';
+import type {EmployeeImportChoice,EmployeeImportPreview,EmployeeImportMapping} from '../../electron/employee-import';
 export type ItemKind = 'earning' | 'deduction';
 export type PayrollStatus = 'draft' | 'finalized' | 'paid';
 export type TaxMode = 'automatic' | 'manual';
@@ -155,6 +156,10 @@ export interface HoleriteAPI {
   snapshot(): Promise<StateSnapshot>;
   saveCompany(input: CompanyInput & {id?: string}): Promise<Company>;
   saveEmployee(input: EmployeeInput & {id?: string}): Promise<Employee>;
+  chooseEmployeeFile(companyId:string):Promise<EmployeeImportChoice|null>;
+  previewEmployeeFile(input:{token:string;mapping:EmployeeImportMapping}):Promise<EmployeeImportPreview>;
+  commitEmployeeFile(input:{token:string;mapping:EmployeeImportMapping}):Promise<{created:number;skipped:number}>;
+  exportEmployeeTemplate():Promise<boolean>;
   generateMonthlyBatch(input:MonthlyBatchInput):Promise<MonthlyBatchResult>;
   savePayroll(input: PayrollInput): Promise<PayrollRecord>;
   finalizePayroll(id: string): Promise<PayrollRecord>;
