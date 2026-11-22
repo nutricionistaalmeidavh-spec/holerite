@@ -1,4 +1,5 @@
 import type {WorkSchedule} from './time';
+import type {AuthState,LocalRole,LocalOperator} from '../../electron/access-control';
 import type {TimeConfig,TimeSheet,MatrixChange} from '../../electron/attendance';
 import type {ImportChoice,ImportPreview,ImportMapping} from '../../electron/time-import';
 export type ItemKind = 'earning' | 'deduction';
@@ -145,6 +146,12 @@ export interface MonthlyBatchResult {created:number; skipped:number;}
 export interface MonthlyBatchInput {companyId:string;competence:string;taxMode:TaxMode;}
 export interface PointAttachment {id:string;employeeId:string;date:string;filename:string;mime:string;size:number;createdAt:string;}
 export interface HoleriteAPI {
+  getAuthState():Promise<AuthState>;
+  setupLocalAccess(input:{name:string;pin:string}):Promise<LocalOperator>;
+  loginLocal(input:{name:string;pin:string}):Promise<LocalOperator>;
+  logoutLocal():Promise<void>;
+  getLocalOperators():Promise<LocalOperator[]>;
+  addLocalOperator(input:{name:string;pin:string;role:LocalRole}):Promise<LocalOperator>;
   snapshot(): Promise<StateSnapshot>;
   saveCompany(input: CompanyInput & {id?: string}): Promise<Company>;
   saveEmployee(input: EmployeeInput & {id?: string}): Promise<Employee>;
