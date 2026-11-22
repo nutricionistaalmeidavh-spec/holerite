@@ -59,7 +59,7 @@ Para criar o instalador do Windows (preferencialmente no Windows):
 npm run dist:win
 ```
 
-O resultado fica em `release/ArtiSys-Holerites-Setup-0.2.0.exe`. O arquivo ficará **sem assinatura de código**: o Windows SmartScreen poderá avisar. O workflow **Quality and Windows setup** também permite gerar um artefato manual via `workflow_dispatch`, sem publicar uma release.
+O resultado fica em `release/ArtiSys-Holerites-Setup-0.3.0.exe`. O arquivo ficará **sem assinatura de código**: o Windows SmartScreen poderá avisar. O workflow **Quality and Windows setup** também permite gerar um artefato manual via `workflow_dispatch`, sem publicar uma release.
 
 ### Atualizações via GitHub Releases
 
