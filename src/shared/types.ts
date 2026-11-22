@@ -18,6 +18,9 @@ export interface Company {
 export interface Employee {
   /** Os campos extras são opcionais para ler snapshots legados. */
   registration?: string;
+  sector?: string;
+  jobSite?: string;
+  costCenter?: string;
   pis?: string;
   workHours?: string;
   bankName?: string;
@@ -118,6 +121,9 @@ export interface CompanyInput {
 }
 export interface EmployeeInput {
   registration?: string;
+  sector?: string;
+  jobSite?: string;
+  costCenter?: string;
   pis?: string;
   workHours?: string;
   bankName?: string;
@@ -171,6 +177,7 @@ export interface HoleriteAPI {
   exportTimeMatrix(input:{companyId:string;competence:string;format:'csv'|'xlsx'|'template'}):Promise<boolean>;
   exportTimePDF(input:{employeeId:string;competence:string}):Promise<boolean>;
   printTimeSheet(input:{employeeId:string;competence:string}):Promise<boolean>;
+  exportTimeReport(input:{companyId:string;competence:string}):Promise<boolean>;
   exportTimeBatchPDF(input:{companyId:string;competence:string;employeeIds:string[]}):Promise<boolean>;
   printTimeBatch(input:{companyId:string;competence:string;employeeIds:string[]}):Promise<boolean>;
 
