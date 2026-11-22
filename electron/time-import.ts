@@ -6,7 +6,7 @@ import {AttendanceStore} from './attendance';
 import type {MatrixChange} from './attendance';
 import type {Employee} from '../src/shared/types';
 import type {PointDay,DayKind} from '../src/shared/time';
-import {KINDS,validDate} from '../src/shared/time';
+import {KINDS,validDate,validateDay} from '../src/shared/time';
 
 export type ImportField='employee'|'cpf'|'registration'|'date'|'kind'|'start'|'breakStart'|'breakEnd'|'end'|'notes';
 export type ImportMapping=Partial<Record<ImportField,string>>;
@@ -146,6 +146,7 @@ export class TimeImporter {
         const times=(['start','breakStart','breakEnd','end'] as const).map(field=>kind==='work'?parseImportTime(at(field)):'');
         const day:PointDay={date,kind,source:'imported',start:times[0],breakStart:times[1],
           breakEnd:times[2],end:times[3],notes:textOf(at('notes')).slice(0,500)};
+        validateDay(day);
         const competence=date.slice(0,7),key=employee.id+'|'+date;
         if(seen.has(key))throw new Error('Dia duplicado nesta planilha');
         seen.add(key);
@@ -165,7 +166,7 @@ export class TimeImporter {
     const {pending,accepted,errors}=this.rows(token,mapping);
     if(errors.length)throw new Error('Corrija as linhas inválidas antes de importar: '+errors.slice(0,4).join('; '));
     if(!accepted.length)throw new Error('Nenhuma linha válida.');
-    if(this.store.importHistory(pending.companyId).some(x=>false))throw new Error('Importação duplicada.');
+    if(this.store.hasImportedHash(pending.companyId,pending.hash))throw new Error('Este arquivo já foi importado.');
     const imported=this.store.saveMatrix(accepted,allowReplace);
     this.store.recordImport(pending.companyId,pending.filename,pending.hash,imported);
     this.pending.delete(token);
