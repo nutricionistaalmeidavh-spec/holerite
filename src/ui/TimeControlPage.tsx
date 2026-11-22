@@ -211,6 +211,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
           <li>1. Jornada</li><li>2. Preenchimento</li><li>3. Conferência em lote</li><li>4. Impressão e assinatura</li><li>5. Holerite</li>
         </ol>
       </div>
+      <button className="btn btn-primary" type="button" disabled={!ready} onClick={()=>setView('import')}>Importar fichas CSV/XLSX</button>
     </section>
     {error&&<div className="error-banner" role="alert">{error}<button aria-label="Fechar erro" onClick={()=>setError('')}>×</button></div>}
     {notice&&<div className="success-banner" role="status">{notice}</div>}
