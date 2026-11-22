@@ -11,7 +11,7 @@
 
 ## Ficha mensal
 - **Criar ficha manual:** cria calendário em branco para o lançamento efetivo das quatro marcações, faltas, férias, feriados, folgas, afastamentos e observações.
-- **Gerar calendário sugerido:** preenche horários planejados de dias úteis, com variação configurável; cada dia mantém origem `suggested` até a conferência em lote. A conferência muda a origem para `reviewed` (gerado e conferido administrativamente), sem fingir que houve batida eletrônica. Só dias conferidos entram na apuração.
+- **Gerar calendário sugerido:** ao clicar, abre um diálogo com **Gerar sem incluir**, **Gerar e incluir na apuração** e **Cancelar**. A primeira opção salva horários com origem `suggested` e os exclui dos cálculos. A segunda gera e registra uma conferência administrativa em lote (`reviewed`) na mesma ação, fazendo os horários entrarem imediatamente na apuração. A origem gerada é preservada e não é tratada como batida de relógio eletrônico. Marcações manuais e importadas nunca são substituídas pela geração.
 - **Salvar:** somente dias alterados são enviados ao banco, auditados e versionados.
 - **Fechar competência:** opcional e sem exigir confirmação diária. Congela o resumo, parâmetros, base salarial e registros disponíveis; sugestões restantes continuam identificadas e não entram no cálculo.
 - **Reabrir:** requer justificativa; fichas integradas ao holerite precisam ser desvinculadas da folha antes de reabrir. Nunca modifica holerites finalizados.
