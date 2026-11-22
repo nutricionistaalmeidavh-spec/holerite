@@ -42,6 +42,7 @@ export class AttendanceStore {
         created_at TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_time_audit_person ON time_audit(employee_id,competence,created_at);
+      CREATE TABLE IF NOT EXISTS time_import_mappings (company_id TEXT NOT NULL REFERENCES companies(id),headers_json TEXT NOT NULL,mapping_json TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(company_id,headers_json));
       CREATE TABLE IF NOT EXISTS time_import_batches (
         id TEXT PRIMARY KEY,company_id TEXT NOT NULL REFERENCES companies(id),
         filename TEXT NOT NULL,content_hash TEXT NOT NULL,processed INTEGER NOT NULL,
@@ -139,7 +140,7 @@ export class AttendanceStore {
     return this.db.prepare('SELECT date,action,before_json,after_json,reason,created_at FROM time_audit WHERE employee_id=? AND competence=? ORDER BY created_at DESC LIMIT 300').all(employeeId,competence) as Row[];
   }
   saveMatrix(changes:MatrixChange[],overwriteImported=false):number {
-    if(!Array.isArray(changes)||!changes.length||changes.length>500)throw new Error('Informe de 1 a 500 dias.');
+    if(!Array.isArray(changes)||!changes.length||changes.length>30000)throw new Error('Informe de 1 a 30.000 dias por operação.');
     const members=new Map<string,{companyId:string;revision:number}>();
     const keys=new Set<string>();
     for(const item of changes){
@@ -261,6 +262,20 @@ export class AttendanceStore {
       revision=revision+1,updated_at=? WHERE employee_id=? AND competence=?`).run(now(),employeeId,competence);
     this.audit(employeeId,competence,'reopen',null,null,reason.trim());
     return this.getSheet(employeeId,competence);
+  }
+
+  getImportMapping(companyId:string,headers:string[]):Record<string,string>|null {
+    this.requireEnabled(companyId);
+    const row=this.db.prepare('SELECT mapping_json FROM time_import_mappings WHERE company_id=? AND headers_json=?')
+      .get(companyId,JSON.stringify(headers)) as Row|undefined;
+    return row?json<Record<string,string>>(row.mapping_json):null;
+  }
+  saveImportMapping(companyId:string,headers:string[],mapping:Record<string,string>):void {
+    this.requireEnabled(companyId);
+    if(!Array.isArray(headers)||headers.length>50||!headers.length||Object.values(mapping).some(value=>!headers.includes(value)))
+      throw new Error('Mapeamento inválido para as colunas da planilha.');
+    this.db.prepare('INSERT INTO time_import_mappings(company_id,headers_json,mapping_json,updated_at) VALUES(?,?,?,?) ON CONFLICT(company_id,headers_json) DO UPDATE SET mapping_json=excluded.mapping_json,updated_at=excluded.updated_at')
+      .run(companyId,JSON.stringify(headers),JSON.stringify(mapping),now());
   }
   hasImportedHash(companyId:string,hash:string):boolean {
     return !!this.db.prepare('SELECT id FROM time_import_batches WHERE company_id=? AND content_hash=?').get(companyId,hash);
