@@ -131,3 +131,16 @@ test('cadastro opcional de setor obra e centro de custo persiste no funcionario'
     assert.equal(db.snapshot().employees[0].costCenter,'CC001');
   }finally{db.close();}
 });
+
+test('historico de ponto atribui edicoes ao operador local',()=>{
+  const db=new HoleriteDatabase(':memory:');
+  try{
+    const company=db.saveCompany({legalName:'Teste Audit',tradeName:'',cnpj:'',address:''});
+    const person=db.saveEmployee({companyId:company.id,name:'Analista',cpf:'12345678909',role:'Auxiliar',admissionDate:'2026-01-01',salaryCents:250000,dependents:0,active:true});
+    const user=db.access.setup('Administrador','123456');
+    db.attendance.setAuditActor(user.id);
+    db.attendance.saveMatrix([{employeeId:person.id,competence:'2026-11',day:{date:'2026-11-03',kind:'work',source:'manual',start:'08:00',breakStart:'12:00',breakEnd:'13:00',end:'17:00',notes:''}}]);
+    const [event]=db.attendance.auditHistory(person.id,'2026-11');
+    assert.equal(event.actor_name,'Administrador');
+  }finally{db.close();}
+});
