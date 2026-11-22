@@ -30,6 +30,8 @@ const api: HoleriteAPI = {
   previewTimeFile: input => call('time-import-preview',input),
   commitTimeFile: input => call('time-import-commit',input),
   getTimeImportHistory: id => call('time-import-history',id),
+  getTimeBankBalance: input => call('time-bank-balance',input),
+  exportTimeMatrix: input => call('time-export-matrix',input),
   exportTimePDF: input => call('time-export-pdf',input),
   printTimeSheet: input => call('time-print',input)
 };
