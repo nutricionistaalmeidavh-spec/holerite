@@ -47,7 +47,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
   const [mapping,setMapping]=useState<ImportMapping>({});
   const [preview,setPreview]=useState<ImportPreview|null>(null);
   const [allowReplace,setAllowReplace]=useState(false);
-  const [audit,setAudit]=useState<Array<{date:string|null;action:string;reason:string;created_at:string}>>([]);
+  const [audit,setAudit]=useState<Array<{date:string|null;action:string;reason:string;created_at:string;actor_name?:string}>>([]);
   const [attachments,setAttachments]=useState<PointAttachment[]>([]);
   const [bankBalance,setBankBalance]=useState(0);
   const [busy,setBusy]=useState(false);
@@ -96,8 +96,8 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
     }));
   };
   const selected=activeEmployees.find(e=>e.id===employeeId);
-  const sheetIssues=useMemo(()=>diagnosePointDays(days),[days]);
-  const matrixIssues=useMemo(()=>matrix.flatMap(s=>diagnosePointDays(s.days).map(issue=>({...issue,employeeId:s.employeeId,employeeName:s.employeeName}))),[matrix]);
+  const sheetIssues=useMemo(()=>diagnosePointDays(days,schedule,competence),[days,schedule,competence]);
+  const matrixIssues=useMemo(()=>matrix.flatMap(s=>s.issues.map(issue=>({...issue,employeeId:s.employeeId,employeeName:s.employeeName}))),[matrix]);
   const reportRows=useMemo(()=>matrix.filter(s=>{
     const employee=activeEmployees.find(e=>e.id===s.employeeId);
     return [s.employeeName,employee?.sector,employee?.jobSite,employee?.costCenter].some(value=>(value||'').toLowerCase().includes(reportFilter.toLowerCase()));
@@ -318,7 +318,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
           </tr>)}</tbody></table></div>
           {!days.length&&<p>Ficha vazia. Use “Gerar calendário sugerido” ou a importação de planilha.</p>}
           {audit.length>0&&<details className="time-audit"><summary>Histórico de alterações ({audit.length})</summary><ul>
-            {audit.slice(0,30).map((row,i)=><li key={i}>{row.created_at} · {row.date||competence} · {row.action} {row.reason}</li>)}
+            {audit.slice(0,30).map((row,i)=><li key={i}>{row.created_at} · {row.actor_name||'Operador legado'} · {row.date||competence} · {row.action} {row.reason}</li>)}
           </ul></details>}
         </>}
       </section>}
