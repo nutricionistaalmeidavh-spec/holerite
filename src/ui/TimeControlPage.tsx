@@ -116,7 +116,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
   };
   const pasteMatrix=(text:string,position:number,startColumn:number)=>{
     const cells=text.replace(/\r/g,'').trimEnd().split('\n').map(line=>line.split('\t'));
-    const editable:Array<keyof PointDay>=['start','breakStart','breakEnd','end','notes'];
+    const editable:Array<keyof PointDay|null>=['start','breakStart','breakEnd','end',null,'notes'];
     if(cells.length===1&&cells[0].length===1)return;
     const next={...matrixDrafts};
     cells.forEach((line,rowIndex)=>{
