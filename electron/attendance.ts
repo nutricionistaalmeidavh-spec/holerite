@@ -42,6 +42,11 @@ export class AttendanceStore {
         created_at TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_time_audit_person ON time_audit(employee_id,competence,created_at);
+      CREATE TABLE IF NOT EXISTS time_attachments (
+        id TEXT PRIMARY KEY,employee_id TEXT NOT NULL REFERENCES employees(id),date TEXT NOT NULL,
+        filename TEXT NOT NULL,mime TEXT NOT NULL,content BLOB NOT NULL,created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_point_attachments_employee ON time_attachments(employee_id,date);
       CREATE TABLE IF NOT EXISTS time_import_mappings (company_id TEXT NOT NULL REFERENCES companies(id),headers_json TEXT NOT NULL,mapping_json TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(company_id,headers_json));
       CREATE TABLE IF NOT EXISTS time_import_batches (
         id TEXT PRIMARY KEY,company_id TEXT NOT NULL REFERENCES companies(id),
@@ -293,4 +298,46 @@ export class AttendanceStore {
     return this.db.prepare('SELECT filename,processed,created_at FROM time_import_batches WHERE company_id=? ORDER BY created_at DESC LIMIT 30')
       .all(companyId) as Row[];
   }
+  /** Anexos locais no SQLite: acompanham backup e não fazem upload. */
+  addAttachment(employeeId:string,date:string,filename:string,mime:string,content:Uint8Array):
+    {id:string;employeeId:string;date:string;filename:string;mime:string;size:number;createdAt:string} {
+    const person=this.employee(employeeId);
+    if(!/^20\\d{2}-\\d{2}-\\d{2}$/.test(date)||!validMonth(date.slice(0,7))||!content||content.byteLength<5||content.byteLength>10*1024*1024)
+      throw new Error('Data ou arquivo de anexo inválido (até 10 MB).');
+    this.requireEnabled(String(person.company_id));
+    const ext=filename.toLowerCase().split('.').pop();
+    const allowed:Record<string,string>={pdf:'application/pdf',png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',webp:'image/webp'};
+    if(!ext||allowed[ext]!==mime||filename.length>180||/[\\/\\\\]/.test(filename))
+      throw new Error('Anexe somente PDF, PNG, JPEG ou WebP.');
+    const bytes=Buffer.from(content);
+    if((ext==='pdf'&&bytes.subarray(0,5).toString()!=='%PDF-')||
+      (ext==='png'&&bytes.subarray(0,4).toString('hex')!=='89504e47')||
+      ((ext==='jpg'||ext==='jpeg')&&bytes.subarray(0,3).toString('hex')!=='ffd8ff')||
+      (ext==='webp'&&(bytes.subarray(0,4).toString()!=='RIFF'||bytes.subarray(8,12).toString()!=='WEBP')))
+      throw new Error('O conteúdo não corresponde ao formato do arquivo.');
+    const id=randomUUID(),createdAt=now();
+    this.db.prepare('INSERT INTO time_attachments VALUES(?,?,?,?,?,?,?)').run(id,employeeId,date,filename,mime,bytes,createdAt);
+    this.audit(employeeId,date.slice(0,7),'attach',null,{id,filename,size:bytes.length},'Documento de justificativa',date);
+    return {id,employeeId,date,filename,mime,size:bytes.length,createdAt};
+  }
+  listAttachments(employeeId:string,competence:string):Array<{id:string;employeeId:string;date:string;filename:string;mime:string;size:number;createdAt:string}> {
+    this.employee(employeeId);
+    if(!validMonth(competence))throw new Error('Competência inválida.');
+    const rows=this.db.prepare('SELECT id,employee_id,date,filename,mime,length(content) AS size,created_at FROM time_attachments WHERE employee_id=? AND substr(date,1,7)=? ORDER BY date,created_at')
+      .all(employeeId,competence) as Row[];
+    return rows.map(row=>({id:String(row.id),employeeId:String(row.employee_id),date:String(row.date),filename:String(row.filename),mime:String(row.mime),size:Number(row.size),createdAt:String(row.created_at)}));
+  }
+  getAttachment(employeeId:string,id:string):{filename:string;mime:string;content:Buffer} {
+    this.employee(employeeId);
+    const row=this.db.prepare('SELECT filename,mime,content FROM time_attachments WHERE id=? AND employee_id=?').get(requiredId(id),employeeId) as Row|undefined;
+    if(!row)throw new Error('Anexo não encontrado para este funcionário.');
+    return {filename:String(row.filename),mime:String(row.mime),content:Buffer.from(row.content as Uint8Array)};
+  }
+  removeAttachment(employeeId:string,id:string):void {
+    const attachment=this.getAttachment(employeeId,id);
+    const row=this.db.prepare('SELECT date FROM time_attachments WHERE id=?').get(id) as Row;
+    this.db.prepare('DELETE FROM time_attachments WHERE id=? AND employee_id=?').run(id,employeeId);
+    this.audit(employeeId,String(row.date).slice(0,7),'detach',{id,filename:attachment.filename},null,'Anexo removido',String(row.date));
+  }
+
 }
