@@ -7,6 +7,14 @@ export interface WorkSchedule {
   start:string; breakStart:string; breakEnd:string; end:string;
   weekdays:number[]; divisor:number; overtimePercent:number; nightPercent:number;
   toleranceMinutes:number; overtimeDestination:'pay'|'bank';
+  /** Escalas rotativas: 1/1 = 12x36; 6/1, 5/1 ou outros ciclos de dias. */
+  cycle?:{workDays:number;restDays:number;anchorDate:string};
+  /** Feriados estaduais/municipais informados pela empresa; nacionais são carregados offline. */
+  holidayDates?:string[];
+  sundayOvertimePercent?:number;
+  holidayOvertimePercent?:number;
+  nightHourReduction?:boolean;
+  dsrOnOvertime?:boolean;
 }
 export interface PointDay {
   date:string; kind:DayKind; source:PointSource;
@@ -17,6 +25,7 @@ export interface PointSummary {
   deficitMinutes:number; absenceMinutes:number; shortfallMinutes:number; lateMinutes:number; nightMinutes:number; bankMinutes:number;
   overtimeCents:number; deficitCents:number; nightCents:number;
   daysWorked:number; absences:number; suggestedDays:number; incompleteDays:number;
+  overtimeSundayMinutes:number; overtimeHolidayMinutes:number; nightReducedMinutes:number; dsrCents:number;
 }
 export const KINDS:DayKind[]=['work','absence','vacation','holiday','rest','leave'];
 export function defaultSchedule():WorkSchedule {
@@ -60,9 +69,47 @@ export function validateSchedule(schedule:WorkSchedule):WorkSchedule {
     !Number.isFinite(schedule.nightPercent)||schedule.nightPercent<0||schedule.nightPercent>100||
     !Number.isInteger(schedule.toleranceMinutes)||schedule.toleranceMinutes<0||schedule.toleranceMinutes>60||
     !['pay','bank'].includes(schedule.overtimeDestination))throw new Error('Parâmetros de apuração inválidos.');
+  if(schedule.cycle && (!Number.isInteger(schedule.cycle.workDays)||schedule.cycle.workDays<1||schedule.cycle.workDays>30||
+    !Number.isInteger(schedule.cycle.restDays)||schedule.cycle.restDays<1||schedule.cycle.restDays>30||
+    !validDate(schedule.cycle.anchorDate)))throw new Error('Escala rotativa inválida.');
+  if(schedule.holidayDates && (!Array.isArray(schedule.holidayDates)||schedule.holidayDates.length>400||
+    schedule.holidayDates.some(date=>!validDate(date))))throw new Error('Datas de feriados inválidas.');
+  for(const value of [schedule.sundayOvertimePercent,schedule.holidayOvertimePercent])
+    if(value!==undefined&&(!Number.isFinite(value)||value<0||value>300))throw new Error('Percentual de feriado/domingo inválido.');
   return schedule;
 }
 export function weekday(date:string):number {return new Date(date+'T12:00:00Z').getUTCDay();}
+
+/** Datas nacionais fixas; Carnaval e Corpus Christi não são feriados federais obrigatórios. */
+const NATIONAL_FIXED=new Set(['01-01','04-21','05-01','09-07','10-12','11-02','11-15','11-20','12-25']);
+export function isHoliday(date:string,schedule:WorkSchedule):boolean {
+  return NATIONAL_FIXED.has(date.slice(5))||(schedule.holidayDates??[]).includes(date);
+}
+export function isScheduledDay(date:string,schedule:WorkSchedule):boolean {
+  if(schedule.cycle){
+    const diff=Math.round((Date.parse(date+'T12:00:00Z')-Date.parse(schedule.cycle.anchorDate+'T12:00:00Z'))/86400000);
+    const period=schedule.cycle.workDays+schedule.cycle.restDays;
+    return ((diff%period)+period)%period<schedule.cycle.workDays;
+  }
+  return schedule.weekdays.includes(weekday(date));
+}
+export interface PointIssue {date:string;code:'SUGGESTED'|'MISSING_PUNCHES'|'ABSENCE_WITHOUT_REASON'|'LONG_SHIFT';message:string;}
+/** Avisos informativos; nunca impedem conferência, fechamento ou apuração. */
+export function diagnosePointDays(days:PointDay[]):PointIssue[] {
+  const issues:PointIssue[]=[];
+  for(const day of days){
+    if(day.source==='suggested')issues.push({date:day.date,code:'SUGGESTED',message:'Horário gerado ainda não incluído na apuração'});
+    if(day.kind==='work'&&![day.start,day.breakStart,day.breakEnd,day.end].every(Boolean))
+      issues.push({date:day.date,code:'MISSING_PUNCHES',message:'Marcação de entrada ou saída incompleta'});
+    if(day.kind==='absence'&&!day.notes.trim())
+      issues.push({date:day.date,code:'ABSENCE_WITHOUT_REASON',message:'Falta sem justificativa registrada'});
+    if(day.kind==='work'&&[day.start,day.breakStart,day.breakEnd,day.end].every(Boolean)){
+      try {if(workedMinutes(day)>720)issues.push({date:day.date,code:'LONG_SHIFT',message:'Jornada acima de 12 horas; conferir'});}
+      catch {/* A validação normal permanece na gravação. */}
+    }
+  }
+  return issues;
+}
 function formatMinute(value:number):string {
   const v=Math.max(0,Math.min(1439,value));
   return String(Math.floor(v/60)).padStart(2,'0')+':'+String(v%60).padStart(2,'0');
@@ -81,10 +128,10 @@ export function previewMonth(competence:string,schedule:WorkSchedule,variationMi
   const [year,month]=competence.split('-').map(Number),last=new Date(Date.UTC(year,month,0)).getUTCDate();
   return Array.from({length:last},(_,i)=>{
     const date=competence+'-'+String(i+1).padStart(2,'0');
-    const work=schedule.weekdays.includes(weekday(date));
+    const holiday=isHoliday(date,schedule),work=isScheduledDay(date,schedule)&&!holiday;
     const fields=['start','breakStart','breakEnd','end'] as const;
     const suggested=fields.map((field,index)=>work?formatMinute(minutes(schedule[field])+jitter(date+':'+index,variationMinutes)):'');
-    return {date,kind:work?'work':'rest',source:'suggested',start:suggested[0],breakStart:suggested[1],breakEnd:suggested[2],end:suggested[3],notes:''};
+    return {date,kind:holiday?'holiday':work?'work':'rest',source:'suggested',start:suggested[0],breakStart:suggested[1],breakEnd:suggested[2],end:suggested[3],notes:''};
   });
 }
 export function validateDay(day:PointDay):PointDay {
@@ -114,14 +161,16 @@ export function assessMonth(days:PointDay[],schedule:WorkSchedule,salaryCents:nu
   const scheduled=workedMinutes(schedule),expected=minutes(schedule.start);
   const result:PointSummary={workedMinutes:0,scheduledMinutes:0,overtimeMinutes:0,
     deficitMinutes:0,absenceMinutes:0,shortfallMinutes:0,lateMinutes:0,nightMinutes:0,bankMinutes:0,
-    overtimeCents:0,deficitCents:0,nightCents:0,daysWorked:0,absences:0,suggestedDays:0,incompleteDays:0};
+    overtimeCents:0,deficitCents:0,nightCents:0,daysWorked:0,absences:0,suggestedDays:0,incompleteDays:0,
+    overtimeSundayMinutes:0,overtimeHolidayMinutes:0,nightReducedMinutes:0,dsrCents:0};
   const seen=new Set<string>();
   for(const day of days){
     validateDay(day);
     if(seen.has(day.date))throw new Error('Dia duplicado: '+day.date);
     seen.add(day.date);
     if(day.source==='suggested'){result.suggestedDays++;continue;}
-    const expectedDay=schedule.weekdays.includes(weekday(day.date));
+    const holiday=isHoliday(day.date,schedule);
+    const expectedDay=isScheduledDay(day.date,schedule)&&!holiday;
     if(day.kind==='absence'){
       result.absences++;
       if(expectedDay){result.scheduledMinutes+=scheduled;result.deficitMinutes+=scheduled;result.absenceMinutes+=scheduled;}
@@ -135,7 +184,10 @@ export function assessMonth(days:PointDay[],schedule:WorkSchedule,salaryCents:nu
     result.workedMinutes+=minutesWorked;
     const planned=expectedDay?scheduled:0;
     result.scheduledMinutes+=planned;
-    result.overtimeMinutes+=Math.max(0,minutesWorked-planned);
+    const overtime=Math.max(0,minutesWorked-planned);
+    result.overtimeMinutes+=overtime;
+    if(holiday)result.overtimeHolidayMinutes+=overtime;
+    else if(weekday(day.date)===0)result.overtimeSundayMinutes+=overtime;
     result.deficitMinutes+=Math.max(0,planned-minutesWorked);
     result.shortfallMinutes+=Math.max(0,planned-minutesWorked);
     result.lateMinutes+=expectedDay?Math.max(0,a-expected-schedule.toleranceMinutes):0;
@@ -143,9 +195,25 @@ export function assessMonth(days:PointDay[],schedule:WorkSchedule,salaryCents:nu
   }
   const centPerMinute=salaryCents/(schedule.divisor*60);
   result.bankMinutes=schedule.overtimeDestination==='bank'?result.overtimeMinutes-result.shortfallMinutes:0;
-  result.overtimeCents=schedule.overtimeDestination==='pay'?Math.round(result.overtimeMinutes*centPerMinute*(1+schedule.overtimePercent/100)):0;
+  const regularMinutes=result.overtimeMinutes-result.overtimeHolidayMinutes-result.overtimeSundayMinutes;
+  result.overtimeCents=schedule.overtimeDestination==='pay'?Math.round(centPerMinute*(
+    regularMinutes*(1+schedule.overtimePercent/100)+
+    result.overtimeSundayMinutes*(1+(schedule.sundayOvertimePercent??schedule.overtimePercent)/100)+
+    result.overtimeHolidayMinutes*(1+(schedule.holidayOvertimePercent??schedule.overtimePercent)/100))):0;
+  if(schedule.dsrOnOvertime&&days.length){
+    const month=days[0].date.slice(0,7),year=Number(month.slice(0,4)),m=Number(month.slice(5,7));
+    const last=new Date(Date.UTC(year,m,0)).getUTCDate();
+    let rests=0,working=0;
+    for(let n=1;n<=last;n++){
+      const date=month+'-'+String(n).padStart(2,'0');
+      if(isHoliday(date,schedule)||!isScheduledDay(date,schedule))rests++;
+      else working++;
+    }
+    result.dsrCents=working?Math.round(result.overtimeCents*rests/working):0;
+  }
   result.deficitCents=Math.round((result.absenceMinutes+(schedule.overtimeDestination==='bank'?0:result.shortfallMinutes))*centPerMinute);
-  result.nightCents=Math.round(result.nightMinutes*centPerMinute*schedule.nightPercent/100);
+  result.nightReducedMinutes=schedule.nightHourReduction?Math.round(result.nightMinutes*8/7):result.nightMinutes;
+  result.nightCents=Math.round(result.nightReducedMinutes*centPerMinute*schedule.nightPercent/100);
   return result;
 }
 export function payrollEntriesFromPoint(competence:string,summary:PointSummary,schedule:WorkSchedule):PayItem[] {
@@ -157,6 +225,7 @@ export function payrollEntriesFromPoint(competence:string,summary:PointSummary,s
   }
   if(schedule.overtimeDestination==='pay')add('HEXTRA','Horas extras do ponto', 'earning',summary.overtimeCents);
   add('HNOT','Adicional noturno do ponto', 'earning',summary.nightCents);
+  add('DSRHEX','DSR estimado sobre horas extras do ponto', 'earning',summary.dsrCents??0);
   add('FALTAS','Ausências/horas não trabalhadas', 'deduction',summary.deficitCents);
   return entries;
 }
