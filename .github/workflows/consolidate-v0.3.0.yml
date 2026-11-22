@@ -1,0 +1,24 @@
+name: Consolidate v0.3.0 release assets
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/consolidate-v0.3.0.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Consolidar instalador e metadados de atualização em uma única release
+        run: node scripts/consolidate-release.mjs v0.3.0
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
