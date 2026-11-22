@@ -8,7 +8,7 @@ export function pointReceiptHTML(sheet:TimeSheet,employee:Employee,company:Compa
   const title=sheet.status==='closed'?'FECHADA':'RASCUNHO';
   const rows=sheet.days.map(day=>`<tr class="${day.source==='suggested'?'suggested':''}">
     <td>${escape(day.date.slice(-2))}</td><td>${escape(kinds[day.kind]||day.kind)}</td>
-    <td>${escape(day.source==='suggested'?'PREVISÃO':day.source==='imported'?'IMPORTADO':'MANUAL')}</td>
+    <td>${escape(day.source==='suggested'?'NÃO CONFERIDO':day.source==='reviewed'?'GERADO / CONFERIDO EM LOTE':day.source==='imported'?'IMPORTADO':'MANUAL')}</td>
     <td>${escape(day.start)}</td><td>${escape(day.breakStart)}</td><td>${escape(day.breakEnd)}</td>
     <td>${escape(day.end)}</td><td>${escape(day.notes)}</td></tr>`).join('');
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Ficha de ponto</title>
@@ -27,7 +27,8 @@ export function pointReceiptHTML(sheet:TimeSheet,employee:Employee,company:Compa
     <div class="totals"><span>Trabalhadas: ${duration(summary.workedMinutes)}</span>
     <span>Extras: ${duration(summary.overtimeMinutes)}</span><span>Déficit: ${duration(summary.deficitMinutes)}</span>
     <span>Noturnas: ${duration(summary.nightMinutes)}</span><span>Faltas: ${summary.absences}</span></div>
-    <div class="sign"><div>Assinatura do funcionário</div><div>Assinatura do responsável</div></div>
-    <footer>Documento interno de conferência. Horários marcados PREVISÃO não são batidas reais e não integram a apuração.
-    Não constitui registrador eletrônico REP ou arquivo oficial AEJ/AFD. Conferir convenção coletiva e incidências com o responsável.</footer></body></html>`;
+    <div class="sign"><div>Assinatura do funcionário · Data: ____/____/________</div><div>Assinatura do responsável · Data: ____/____/________</div></div>
+    <footer>Documento de conferência e assinatura posterior. Horários GERADOS / CONFERIDOS EM LOTE continuam identificados como gerados;
+    horários NÃO CONFERIDOS não compõem a apuração. A assinatura deve ocorrer após conferir o conteúdo impresso.
+    Esta ficha não constitui registrador eletrônico REP nem arquivo oficial AEJ/AFD.</footer></body></html>`;
 }
