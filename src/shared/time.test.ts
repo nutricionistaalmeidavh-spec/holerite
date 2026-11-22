@@ -59,11 +59,11 @@ test('bank of hours offsets shortfall without charging the same minutes in payro
 
 
 test('escala 12x36 alterna dias a partir da ancora sem depender do dia da semana',()=>{
-  const schedule={...defaultSchedule(),start:'07:00',breakStart:'12:00',breakEnd:'13:00',end:'20:00',cycle:{workDays:1,restDays:1,anchorDate:'2026-11-02'}};
+  const schedule={...defaultSchedule(),start:'07:00',breakStart:'12:00',breakEnd:'13:00',end:'20:00',cycle:{workDays:1,restDays:1,anchorDate:'2026-11-03'}};
   const days=previewMonth('2026-11',schedule);
-  assert.equal(days.find(d=>d.date==='2026-11-02')?.kind,'work');
-  assert.equal(days.find(d=>d.date==='2026-11-03')?.kind,'rest');
-  assert.equal(days.find(d=>d.date==='2026-11-04')?.kind,'work');
+  assert.equal(days.find(d=>d.date==='2026-11-03')?.kind,'work');
+  assert.equal(days.find(d=>d.date==='2026-11-04')?.kind,'rest');
+  assert.equal(days.find(d=>d.date==='2026-11-05')?.kind,'work');
 });
 
 test('feriado federal na sexta nao cria horas trabalhadas sugeridas',()=>{
