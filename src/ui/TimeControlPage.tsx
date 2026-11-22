@@ -190,6 +190,13 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
             {fields.map(field=><label key={field}>{timeLabel[field]}<input type="time" value={schedule[field]} disabled={sheet.status==='closed'} onChange={e=>setScheduleField(field,e.target.value)}/></label>)}
             <button className="btn btn-secondary" disabled={busy||sheet.status==='closed'} onClick={()=>void run(saveSchedule)}>Salvar jornada</button></div>
           <div className="time-actions">
+            <button className="btn btn-secondary" disabled={busy||sheet.status==='closed'} onClick={()=>{
+              const registered=new Set(days.map(d=>d.date));
+              const blanks=previewMonth(competence,schedule,0).filter(d=>!registered.has(d.date))
+                .map(d=>({...d,source:'manual' as const,start:'',breakStart:'',breakEnd:'',end:''}));
+              setDays(current=>[...current,...blanks].sort((a,b)=>a.date.localeCompare(b.date)));
+              setNotice('Calendário vazio criado. Informe as batidas reais e salve.');
+            }}>Criar ficha manual</button>
             <button className="btn btn-secondary" disabled={busy||sheet.status==='closed'} onClick={()=>void run(async()=>{const result=await window.holerites.autofillTimeSheet({employeeId,competence});setSheet(result);setDays(result.days);setNotice('Calendário sugerido. Confira os horários reais individualmente.');})}>Gerar calendário sugerido</button>
             <button className="btn btn-primary" disabled={busy||sheet.status==='closed'||!changedDays.length} onClick={()=>void run(saveDays)}>Salvar {changedDays.length} alteração(ões)</button>
             <button className="btn btn-secondary" disabled={busy} onClick={()=>void run(async()=>{await window.holerites.exportTimePDF({employeeId,competence});})}>PDF</button>
