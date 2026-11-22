@@ -25,6 +25,7 @@ function actualHours(day:PointDay):string {
 }
 const weekdays=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 type View='individual'|'matrix'|'import'|'settings';
+type GenerationRequest={scope:'individual'|'team';companyId:string;competence:string;employeeId?:string};
 
 export function TimeControlPage({companyId,competence,employees,onPayrollUpdated,initialEmployeeId=''}:{
   companyId:string;competence:string;employees:Employee[];
@@ -49,6 +50,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
   const [notice,setNotice]=useState('');
+  const [generationRequest,setGenerationRequest]=useState<GenerationRequest|null>(null);
   const ready=Boolean(config);
   const activeEmployees=useMemo(()=>employees.filter(e=>e.active&&e.companyId===companyId),[employees,companyId]);
 
@@ -59,7 +61,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
   };
   useEffect(()=>{
     let mounted=true;
-    setConfig(null);setEmployeeId(employees.some(e=>e.id===initialEmployeeId&&e.companyId===companyId)?initialEmployeeId:'');setSheet(null);setDays([]);setMatrix([]);setMatrixDrafts({});
+    setGenerationRequest(null);setConfig(null);setEmployeeId(employees.some(e=>e.id===initialEmployeeId&&e.companyId===companyId)?initialEmployeeId:'');setSheet(null);setDays([]);setMatrix([]);setMatrixDrafts({});
     if(companyId)window.holerites.getTimeConfig(companyId).then(c=>{if(mounted){setConfig(c);setSchedule(c.schedule);}}).catch(e=>{if(mounted)setError(String(e));});
     return ()=>{mounted=false;};
   },[companyId]);
@@ -146,6 +148,44 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
     await window.holerites.saveTimeMatrix({changes});
     await loadMatrix();if(sheet)await loadSheet();setNotice(changes.length+' dia(s) atualizados na matriz.');
   };
+  const generateFromDialog=async(includeInCalculation:boolean)=>{
+    const request=generationRequest;
+    if(!request)return;
+    setGenerationRequest(null);
+    if(request.companyId!==companyId||request.competence!==competence)return;
+    await run(async()=>{
+      if(request.scope==='individual'){
+        if(!request.employeeId||request.employeeId!==employeeId)throw new Error('Funcionário alterado. Abra a ficha novamente.');
+        await saveDays();
+        const result=await window.holerites.autofillTimeSheet({employeeId:request.employeeId,competence:request.competence});
+        if(includeInCalculation){
+          const reviewed=await window.holerites.reviewTimeSuggestions({employeeIds:[request.employeeId],competence:request.competence});
+          await loadSheet();
+          setNotice(reviewed.reviewed
+            ?reviewed.reviewed+' dias gerados/conferidos incluídos imediatamente na apuração.'
+            :'Nenhum horário sugerido pendente de inclusão na apuração.');
+        }else{
+          await loadSheet();
+          setNotice('Calendário gerado sem inclusão na apuração. Use a conferência em lote quando desejar.');
+        }
+        return;
+      }
+      await saveMatrix();
+      const editable=matrix.filter(s=>s.status==='draft').map(s=>s.employeeId);
+      if(!editable.length)throw new Error('Não há funcionários com ficha editável nesta competência.');
+      for(const id of editable)await window.holerites.autofillTimeSheet({employeeId:id,competence:request.competence});
+      if(includeInCalculation){
+        const reviewed=await window.holerites.reviewTimeSuggestions({employeeIds:editable,competence:request.competence});
+        setNotice(reviewed.reviewed
+          ?reviewed.reviewed+' dias de '+reviewed.employees+' funcionário(s) incluídos imediatamente na apuração.'
+          :'Nenhum horário sugerido pendente de inclusão na apuração.');
+      }else{
+        setNotice('Calendários da equipe gerados sem inclusão na apuração.');
+      }
+      await loadMatrix();
+      if(employeeId)await loadSheet();
+    });
+  };
   const saveSchedule=async()=>{
     if(employeeId){
       setSchedule(await window.holerites.setTimeSchedule({employeeId,schedule}));
@@ -211,7 +251,8 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
               setDays(current=>[...current,...blanks].sort((a,b)=>a.date.localeCompare(b.date)));
               setNotice('Calendário vazio criado. Informe as batidas reais e salve.');
             }}>Criar ficha manual</button>
-            <button className="btn btn-secondary" disabled={busy||sheet.status==='closed'} onClick={()=>void run(async()=>{await saveDays();const result=await window.holerites.autofillTimeSheet({employeeId,competence});setSheet(result);setDays(result.days);setNotice('Horários sugeridos gerados. Você pode conferir todos em lote.');})}>Gerar calendário sugerido</button>
+            <button className="btn btn-secondary" disabled={busy||sheet.status==='closed'}
+              onClick={()=>setGenerationRequest({scope:'individual',companyId,competence,employeeId})}>Gerar calendário sugerido</button>
             <button className="btn btn-primary" disabled={busy||sheet.status==='closed'||!days.some(day=>day.source==='suggested')}
               onClick={()=>void run(async()=>{
                 await saveDays();
@@ -244,10 +285,8 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
       </section>}
       {view==='matrix'&&<section className="card time-sheet">
         <div className="time-actions"><h2>Matriz mensal da equipe</h2>
-          <button className="btn btn-secondary" disabled={busy} onClick={()=>void run(async()=>{
-            for(const e of activeEmployees)await window.holerites.autofillTimeSheet({employeeId:e.id,competence});
-            await loadMatrix();setNotice('Calendários sugeridos, sem substituir dados reais.');
-          })}>Criar calendários da equipe</button>
+          <button className="btn btn-secondary" disabled={busy||!matrix.some(s=>s.status==='draft')}
+            onClick={()=>setGenerationRequest({scope:'team',companyId,competence})}>Criar calendários da equipe</button>
           <button className="btn btn-primary" disabled={busy||!Object.keys(matrixDrafts).length} onClick={()=>void run(saveMatrix)}>Salvar {Object.keys(matrixDrafts).length} dia(s)</button>
           <button className="btn btn-primary" disabled={busy||!matrix.some(s=>s.status==='draft'&&s.days.some(day=>day.source==='suggested'))}
             onClick={()=>void run(async()=>{
@@ -323,5 +362,37 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
       <p>Carregando a configuração de jornada da empresa...</p>
     </section>}
     <p className="time-legal">Ferramenta de administração/tratamento interno. Não substitui REP-C, REP-A, REP-P ou a escrituração oficial. Horas noturnas, reflexos e regras convencionais exigem revisão profissional.</p>
+    {generationRequest&&<div className="modal-backdrop" role="presentation"
+      onMouseDown={e=>{if(e.currentTarget===e.target&&!busy)setGenerationRequest(null);}}>
+      <div className="modal time-generation-modal" role="dialog" aria-modal="true"
+        aria-labelledby="time-generation-title" aria-describedby="time-generation-description"
+        onKeyDown={e=>{if(e.key==='Escape'&&!busy){e.stopPropagation();setGenerationRequest(null);}}}>
+        <div className="modal-heading"><div>
+          <div className="eyebrow">PREENCHIMENTO DE PONTO</div>
+          <h2 id="time-generation-title">Incluir horários gerados na apuração?</h2>
+        </div><button type="button" className="icon-btn" disabled={busy}
+          onClick={()=>setGenerationRequest(null)} aria-label="Fechar diálogo">×</button></div>
+        <p id="time-generation-description">
+          {generationRequest.scope==='team'
+            ?'Os calendários serão gerados para os funcionários com fichas abertas nesta competência.'
+            :'O calendário mensal será gerado para este funcionário.'}
+          {' '}Escolha se deseja incluir agora os horários sugeridos nos cálculos de horas e da folha.
+        </p>
+        <div className="time-generation-explain">
+          <strong>Ao incluir na apuração</strong>
+          <span>Os horários gerados serão identificados como conferidos administrativamente e passarão a compor os cálculos. Horários manuais e importados serão preservados.</span>
+          <strong>Ao gerar sem incluir</strong>
+          <span>Os horários continuarão como sugestões, disponíveis para edição e conferência em lote posteriormente.</span>
+        </div>
+        <p className="time-legal">A confirmação não substitui o registro real de jornada nem a assinatura do funcionário após a impressão da ficha.</p>
+        <div className="form-actions time-generation-actions">
+          <button type="button" className="btn btn-ghost" disabled={busy} onClick={()=>setGenerationRequest(null)}>Cancelar</button>
+          <button type="button" className="btn btn-secondary" autoFocus disabled={busy}
+            onClick={()=>void generateFromDialog(false)}>Gerar sem incluir</button>
+          <button type="button" className="btn btn-primary" disabled={busy}
+            onClick={()=>void generateFromDialog(true)}>Gerar e incluir na apuração</button>
+        </div>
+      </div>
+    </div>}
   </div>;
 }
