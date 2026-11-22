@@ -121,9 +121,25 @@ try {
   await verifyNoAlert();
   await screenshot('09-funcionarios-lista', 'Funcionários: lista preenchida');
 
+  // O ponto é o núcleo do produto. Conclua a ficha antes de começar a folha mensal.
+  await go('Controle de ponto');
+  await page.locator('.time-filters select').selectOption({index:1});
+  await page.getByRole('button', {name:'Gerar calendário sugerido'}).click();
+  const confirmWorkday=page.getByRole('button',{name:'Conferir',exact:true});
+  let confirmed=0;
+  while(await confirmWorkday.count()){
+    await confirmWorkday.first().click();
+    if(++confirmed>31)throw new Error('Número inválido de dias úteis para conferência');
+  }
+  assert.ok(confirmed>=18,'Nenhum calendário de dias úteis foi conferido.');
+  await page.getByRole('button',{name:/Salvar \d+ alteração/}).click();
+  await page.getByRole('button',{name:'Fechar competência'}).click();
+  await page.getByRole('button',{name:'Gerar holerite do ponto'}).waitFor();
+  await verifyNoAlert();
+
   await go('Visão geral');
   await screenshot('10-visao-geral', 'Dashboard após cadastros');
-  await go('Folha de pagamento');
+  await go('Holerites e folha');
   await page.locator('input[aria-label="Competência"]').fill('2026-11');
   await screenshot('11-folha-sem-selecao', 'Folha: seleção de documento e colaborador');
   await page.locator('.employee-rail-item').filter({hasText:'Colaborador Demonstração QA'}).click();
@@ -168,22 +184,13 @@ try {
   await screenshot('24-editar-empresa', 'Modal para editar empresa existente');
   await dialog.getByRole('button', {name:'Cancelar'}).click();
 
-  // P0/P1: verify the point module is truly optional and the manual + matrix flows work in Electron.
+  // Controle de ponto é principal; o holerite foi emitido somente após a ficha fechada.
   await go('Controle de ponto');
-  await screenshot('25-ponto-desativado', 'Controle de ponto desativado por padrão');
-  await page.locator('.time-module-toggle input').check();
+  await screenshot('25-ponto-principal', 'Controle de ponto é a tela principal, sem ativação opcional');
   await page.getByRole('tab', {name:'Ficha individual'}).waitFor();
-  await screenshot('26-ponto-ativado', 'Controle de ponto habilitado explicitamente');
-  await page.locator('.time-filters select').selectOption({index:1});
-  await page.getByRole('button', {name:'Criar ficha manual'}).waitFor();
-  await page.getByRole('button', {name:'Criar ficha manual'}).click();
-  await page.getByLabel('Entrada 2026-11-02', {exact:true}).fill('08:00');
-  await page.getByLabel('Saída almoço 2026-11-02', {exact:true}).fill('12:00');
-  await page.getByLabel('Volta almoço 2026-11-02', {exact:true}).fill('13:00');
-  await page.getByLabel('Saída 2026-11-02', {exact:true}).fill('17:00');
-  await page.getByRole('button', {name:/Salvar \d+ alteração/}).click();
-  await verifyNoAlert();
-  await screenshot('27-ponto-ficha-manual', 'Ficha manual com quatro marcações e auditoria');
+  await screenshot('26-ponto-fechado', 'Ficha conferida e fechada antes do holerite');
+  await page.getByRole('tab', {name:'Configurações'}).click();
+  await screenshot('27-ponto-configuracoes', 'Jornada e parâmetros da competência');
   await page.getByRole('tab', {name:'Matriz da equipe'}).click();
   await page.getByText('Uma linha por funcionário/dia').waitFor();
   await screenshot('28-ponto-matriz', 'Matriz mensal de ponto da equipe');
@@ -194,7 +201,7 @@ try {
     ['Visão geral', '30-compacto-dashboard'],
     ['Empresas', '31-compacto-empresas'],
     ['Funcionários', '32-compacto-funcionarios'],
-    ['Folha de pagamento', '33-compacto-folha'],
+    ['Holerites e folha', '33-compacto-folha'],
     ['Histórico', '34-compacto-historico'],
     ['Controle de ponto', '35-compacto-ponto']
   ]) {
