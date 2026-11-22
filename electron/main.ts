@@ -7,6 +7,7 @@ import { HoleriteDatabase } from './database';
 import { receiptHTML } from './receipt';
 import {pointReceiptHTML} from './point-receipt';
 import {TimeImporter} from './time-import';
+import {exportTimeFile} from './time-export';
 import type {PayrollRecord} from '../src/shared/types';
 
 let mainWindow: BrowserWindow | null = null;
@@ -97,6 +98,21 @@ function bindIPC() {
   bind('time-import-preview',(v:any)=>timeImporter.preview(v.token,v.mapping));
   bind('time-import-commit',(v:any)=>timeImporter.commit(v.token,v.mapping,v.allowReplace===true));
   bind('time-import-history',(id:string)=>storage.attendance.importHistory(id));
+  bind('time-bank-balance',(v:any)=>storage.attendance.bankBalance(v.employeeId,v.competence));
+  bind('time-export-matrix',async(v:any)=>{
+    const format=v?.format;
+    if(!['csv','xlsx','template'].includes(format))throw new Error('Formato inválido.');
+    const ext=format==='csv'?'csv':'xlsx';
+    const dialogResult=await dialog.showSaveDialog(mainWindow!,{
+      title:format==='template'?'Salvar modelo de planilha':'Exportar matriz de ponto',
+      defaultPath:format==='template'?'Modelo-Controle-Ponto.xlsx':'Controle-Ponto-'+v.competence+'.'+ext,
+      filters:[{name:ext.toUpperCase(),extensions:[ext]}]
+    });
+    if(dialogResult.canceled||!dialogResult.filePath)return false;
+    await exportTimeFile({store:storage.attendance,employees:storage.snapshot().employees,
+      companyId:v.companyId,competence:v.competence,format,filePath:dialogResult.filePath});
+    return true;
+  });
   bind('time-export-pdf',(v:any)=>printTime(v.employeeId,v.competence,'pdf'));
   bind('time-print',(v:any)=>printTime(v.employeeId,v.competence,'print'));
   bind('export-backup',async()=>{
