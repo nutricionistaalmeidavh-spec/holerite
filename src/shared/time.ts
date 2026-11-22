@@ -1,7 +1,7 @@
 import type {PayItem} from './types';
 
 export type DayKind='work'|'absence'|'vacation'|'holiday'|'rest'|'leave';
-export type PointSource='suggested'|'manual'|'imported';
+export type PointSource='suggested'|'reviewed'|'manual'|'imported';
 export type PointStatus='draft'|'closed';
 export interface WorkSchedule {
   start:string; breakStart:string; breakEnd:string; end:string;
@@ -88,7 +88,7 @@ export function previewMonth(competence:string,schedule:WorkSchedule,variationMi
   });
 }
 export function validateDay(day:PointDay):PointDay {
-  if(!validDate(day.date)||!KINDS.includes(day.kind)||!['suggested','manual','imported'].includes(day.source)||
+  if(!validDate(day.date)||!KINDS.includes(day.kind)||!['suggested','reviewed','manual','imported'].includes(day.source)||
     typeof day.notes!=='string'||day.notes.length>500)throw new Error('Dia, origem ou observação inválidos.');
   const fields=[day.start,day.breakStart,day.breakEnd,day.end];
   if(fields.some(x=>typeof x!=='string'))throw new Error('Marcação inválida.');
