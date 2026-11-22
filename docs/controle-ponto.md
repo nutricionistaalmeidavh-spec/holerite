@@ -6,8 +6,8 @@
 1. Cadastre a empresa e os funcionários. **Controle de ponto** é a tela inicial e a primeira opção do menu.
 2. Em **Configurações**, informe horários, dias da semana, divisor salarial, percentual de horas extras, adicional noturno, tolerância e opção entre pagamento de extras ou banco de horas.
 3. Na **Ficha individual**, personalize a jornada do empregado, se necessário; o histórico fechado é preservado.
-4. Preencha o mês manualmente ou importe CSV/XLSX; a variação **0–10 minutos**, padrão 0, continua opcional apenas para **sugestões** e nunca cria batidas reais.
-5. Use **Conferir mês em lote** (ou **Conferir equipe em lote** na matriz) para registrar a revisão administrativa de todos os horários gerados, sem clicar dia a dia. Salve, imprima a ficha e recolha a assinatura do funcionário após a leitura. Feche a competência se desejar; o holerite não fica bloqueado pelo status do ponto.
+4. Preencha manualmente, importe CSV/XLSX ou clique em **Gerar calendário sugerido** (a variação opcional vai de 0 a 10 minutos). O sistema abre um diálogo perguntando **“Incluir horários gerados na apuração?”**: escolha **Gerar e incluir na apuração** para considerar os horários nos cálculos imediatamente, ou **Gerar sem incluir** para manter somente as sugestões.
+5. Na equipe, **Criar calendários da equipe** oferece a mesma decisão para as fichas abertas. Caso escolha gerar sem incluir, ainda pode usar **Conferir mês em lote** ou **Conferir equipe em lote** depois. Imprima a ficha para leitura e assinatura física do funcionário. O fechamento do ponto não é obrigatório para emitir o holerite.
 
 ## Ficha mensal
 - **Criar ficha manual:** cria calendário em branco para o lançamento efetivo das quatro marcações, faltas, férias, feriados, folgas, afastamentos e observações.
