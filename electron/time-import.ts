@@ -158,7 +158,7 @@ export class TimeImporter {
         let target=sheets.get(sheetKey);
         if(!target){
           target=employee.createdAt?this.store.getSheet(employee.id,competence):
-            {status:'draft',days:[]} as ReturnType<AttendanceStore['getSheet']>;
+            {status:'draft',days:[]} as unknown as ReturnType<AttendanceStore['getSheet']>;
           sheets.set(sheetKey,target);
         }
         if(target.status==='closed')throw new Error('Ficha fechada: reabra antes de importar');
