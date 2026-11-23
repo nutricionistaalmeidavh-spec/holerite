@@ -150,6 +150,17 @@ export class AttendanceStore {
     this.employee(employeeId);
     return this.db.prepare('SELECT ta.date,ta.action,ta.before_json,ta.after_json,ta.reason,ta.created_at,ta.actor_id,op.name AS actor_name FROM time_audit ta LEFT JOIN time_operators op ON ta.actor_id=op.id WHERE ta.employee_id=? AND ta.competence=? ORDER BY ta.created_at DESC LIMIT 300').all(employeeId,competence) as Row[];
   }
+  atomicImport<T>(fn:()=>T):T{
+    this.db.exec('SAVEPOINT complete_time_import');
+    try{
+      const result=fn();
+      this.db.exec('RELEASE SAVEPOINT complete_time_import');
+      return result;
+    }catch(error){
+      this.db.exec('ROLLBACK TO SAVEPOINT complete_time_import; RELEASE SAVEPOINT complete_time_import');
+      throw error;
+    }
+  }
   saveMatrix(changes:MatrixChange[],overwriteImported=false):number {
     if(!Array.isArray(changes)||!changes.length||changes.length>30000)throw new Error('Informe de 1 a 30.000 dias por operação.');
     const members=new Map<string,{companyId:string;revision:number}>();
