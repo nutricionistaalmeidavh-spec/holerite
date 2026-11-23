@@ -4,6 +4,7 @@ import type {TimeConfig,TimeSheet,MatrixChange} from '../../electron/attendance'
 import type {ImportChoice,ImportMapping,ImportPreview,ImportField} from '../../electron/time-import';
 import type {PointDay,WorkSchedule} from '../shared/time';
 import {defaultSchedule,previewMonth,workedMinutes,diagnosePointDays} from '../shared/time';
+import {pointSourceLabel,pointRowStatus} from './time-row-display';
 
 const kindLabels:Record<PointDay['kind'],string>={
   work:'Trabalho',absence:'Falta',vacation:'Férias',holiday:'Feriado',rest:'Folga',leave:'Afastamento'
@@ -98,6 +99,8 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
   const selected=activeEmployees.find(e=>e.id===employeeId);
   const sheetIssues=useMemo(()=>diagnosePointDays(days,schedule,competence),[days,schedule,competence]);
   const matrixIssues=useMemo(()=>matrix.flatMap(s=>s.issues.map(issue=>({...issue,employeeId:s.employeeId,employeeName:s.employeeName}))),[matrix]);
+  const matrixIssueKeys=useMemo(()=>new Set(matrixIssues.map(issue=>issue.employeeId+'|'+issue.date)),[matrixIssues]);
+  const matrixSummary=useMemo(()=>({total:matrix.length,closed:matrix.filter(s=>s.status==='closed').length,suggested:matrix.reduce((sum,s)=>sum+s.days.filter(d=>d.source==='suggested').length,0)}),[matrix]);
   const reportRows=useMemo(()=>matrix.filter(s=>{
     const employee=activeEmployees.find(e=>e.id===s.employeeId);
     return [s.employeeName,employee?.sector,employee?.jobSite,employee?.costCenter].some(value=>(value||'').toLowerCase().includes(reportFilter.toLowerCase()));
@@ -202,11 +205,11 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
       setNotice('Jornada personalizada do funcionário salva.');
     }else if(config)await configure({...config,schedule});
   };
-  return <div className="time-page">
+  return <div className="time-page point-workspace">
     <section className="card time-settings-bar">
       <div>
         <h2>Controle de ponto <small>início da folha mensal</small></h2>
-        <p>Preencha ou importe os horários, confira o mês inteiro em lote e imprima para o funcionário assinar. O fechamento não bloqueia a emissão do holerite.</p>
+        <p>Preencha ou importe os horários, revise o mês inteiro e imprima as fichas para assinatura física. A conferência orienta e não bloqueia a emissão do holerite.</p>
         <ol className="time-steps" aria-label="Fluxo mensal">
           <li>1. Jornada</li><li>2. Preenchimento</li><li>3. Conferência em lote</li><li>4. Impressão e assinatura</li><li>5. Holerite</li>
         </ol>
@@ -322,8 +325,18 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
           </ul></details>}
         </>}
       </section>}
-      {view==='matrix'&&<section className="card time-sheet">
-        <div className="time-actions"><h2>Matriz mensal da equipe</h2>
+      {view==='matrix'&&<section className="card time-sheet time-matrix-workspace">
+        <div className="time-matrix-heading">
+          <div><div className="atlas-overline">REGISTROS DA COMPETÊNCIA</div><h2>Matriz mensal da equipe</h2>
+            <p>Uma linha por colaborador e dia, com edição direta e conferência em lote.</p></div>
+          <div className="time-matrix-summary" aria-label="Resumo da matriz carregada">
+            <div><strong>{matrixSummary.total}</strong><span>Fichas carregadas</span></div>
+            <div><strong>{matrixSummary.closed}</strong><span>Fichas fechadas</span></div>
+            <div><strong>{matrixIssues.length}</strong><span>Avisos para revisar</span></div>
+            <div><strong>{Object.keys(matrixDrafts).length}</strong><span>Dias alterados</span></div>
+          </div>
+        </div>
+        <div className="time-actions time-matrix-actions">
           <button className="btn btn-secondary" disabled={busy||!matrix.some(s=>s.status==='draft')}
             onClick={()=>setGenerationRequest({scope:'team',companyId,competence})}>Criar calendários da equipe</button>
           <button className="btn btn-primary" disabled={busy||!Object.keys(matrixDrafts).length} onClick={()=>void run(saveMatrix)}>Salvar {Object.keys(matrixDrafts).length} dia(s)</button>
@@ -348,13 +361,19 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
             onChange={e=>setSelectedForPrint(current=>e.target.checked?[...current,s.employeeId]:current.filter(id=>id!==s.employeeId))}/>{s.employeeName}</label>)}</div>
         </details>
         {matrixIssues.length>0&&<details className="time-audit"><summary>Conferência da equipe: {matrixIssues.length} aviso(s), sem bloquear a apuração</summary><ul>{matrixIssues.slice(0,70).map((issue,i)=><li key={i}>{issue.employeeName} · {dayText(issue.date)} · {issue.message}</li>)}</ul></details>}
-        <input placeholder="Filtrar por nome ou data" aria-label="Buscar na matriz" value={filter} onChange={e=>{setFilter(e.target.value);setPage(0);}}/>
+        <div className="time-matrix-search">
+          <label htmlFor="time-matrix-filter">Buscar nos registros</label>
+          <input id="time-matrix-filter" placeholder="Funcionário ou data" aria-label="Buscar na matriz" value={filter} onChange={e=>{setFilter(e.target.value);setPage(0);}}/>
+          <span>{matrixRows.length} registro(s) nesta seleção · {matrixSummary.suggested} sugestão(ões) pendentes na equipe</span>
+        </div>
         <div className="table-scroll time-table"><table className="data-table"><thead><tr>
-          <th>Funcionário</th><th>Data</th><th>Tipo</th><th>Entrada</th><th>Saída almoço</th><th>Retorno</th><th>Saída</th><th>Horas reais</th><th>Observações</th>
+          <th>Funcionário</th><th>Data</th><th>Tipo</th><th>Entrada</th><th>Saída almoço</th><th>Retorno</th><th>Saída</th><th>Horas reais</th><th>Observações</th><th>Origem</th><th>Conferência</th>
         </tr></thead><tbody>{visibleMatrixRows.map((row,index)=>{
           const day=matrixDrafts[row.key]||row.day;
           const locked=matrix.find(s=>s.employeeId===row.employeeId)?.status==='closed';
-          return <tr key={row.key} className={day.source==='suggested'?'time-suggested':''}>
+          const rowHasIssues=matrixIssueKeys.has(row.key);
+          const visualStatus=pointRowStatus(day.source,rowHasIssues);
+          return <tr key={row.key} className={[day.source==='suggested'?'time-suggested':'',rowHasIssues?'time-row-issue':''].filter(Boolean).join(' ')}>
             <td>{row.employeeName}</td><td>{dayText(day.date)}</td>
             <td><select disabled={busy||locked} value={day.kind} aria-label={'Tipo '+row.key}
               onChange={e=>matrixEdit(row.key,row.day,{kind:e.target.value as PointDay['kind']})}>
@@ -365,6 +384,8 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
             <td>{actualHours(day)}</td>
             <td><input value={day.notes} disabled={busy||locked} maxLength={500} aria-label={'Observações '+row.key}
               onChange={e=>matrixEdit(row.key,row.day,{notes:e.target.value})}/></td>
+            <td><span className={'time-origin time-origin-'+day.source}>{pointSourceLabel(day.source)}</span></td>
+            <td><span className={'time-state time-state-'+visualStatus.tone}>{visualStatus.label}</span></td>
           </tr>;
         })}</tbody></table></div>
         <div className="time-pagination"><span>{matrixRows.length} dias · Página {page+1} de {Math.max(1,Math.ceil(matrixRows.length/100))}</span>

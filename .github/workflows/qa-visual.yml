@@ -13,7 +13,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: holerites-qa-visual
+  # Each PR/branch has isolated visual QA; unrelated PRs never cancel one another.
+  group: holerites-qa-visual-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:

@@ -5,18 +5,18 @@
  * Este tema modifica exclusivamente a interface React; não altera PDFs nem cálculos.
  */
 :root {
-  --atlas-bg: #F5F7FA;
+  --atlas-bg: #F5F7F9;
   --atlas-surface: #FFFFFF;
-  --atlas-surface-muted: #EEF2F7;
-  --atlas-fg: #17273D;
-  --atlas-fg-muted: #526278;
-  --atlas-primary: #264E78;
+  --atlas-surface-muted: #ECF1F4;
+  --atlas-fg: #16283A;
+  --atlas-fg-muted: #52677B;
+  --atlas-primary: #1E4B65;
   --atlas-primary-fg: #FFFFFF;
-  --atlas-secondary: #DCE8F1;
-  --atlas-secondary-fg: #204462;
-  --atlas-accent: #16776D;
-  --atlas-border: #CDD7E3;
-  --atlas-sidebar: #172B41;
+  --atlas-secondary: #DFEAE9;
+  --atlas-secondary-fg: #1A4C48;
+  --atlas-accent: #117A70;
+  --atlas-border: #D4DFE5;
+  --atlas-sidebar: #192E40;
   --atlas-success: #18654D;
   --atlas-warning: #8C5617;
   --atlas-danger: #A33F47;
