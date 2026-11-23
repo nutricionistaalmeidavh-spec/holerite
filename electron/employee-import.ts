@@ -58,6 +58,8 @@ export class EmployeeImporter {
       throw new Error('Mapeamento contém colunas inexistentes.');
     if(Object.keys(edits).length>30000)throw new Error('Número excessivo de correções.');
     const existing=this.db.snapshot().employees.filter(e=>e.companyId===p.companyId);
+    const byCpf=new Map(existing.filter(e=>e.cpf).map(e=>[e.cpf,e]));
+    const byRegistration=new Map(existing.filter(e=>e.registration).map(e=>[norm(e.registration||''),e]));
     const seenCpf=new Set<string>(),seenRegistration=new Set<string>();
     const ready:Array<EmployeeInput&{id:string}>=[],errors:string[]=[],display:EmployeeImportRow[]=[];
     let skipped=0;
@@ -77,8 +79,8 @@ export class EmployeeImporter {
           throw new Error('Funcionário repetido na planilha');
         if(cpf)seenCpf.add(cpf);
         if(registration)seenRegistration.add(norm(registration));
-        const cpfMatch=cpf?existing.find(e=>e.cpf===cpf):undefined;
-        const regMatch=registration?existing.find(e=>norm(e.registration||'')===norm(registration)):undefined;
+        const cpfMatch=cpf?byCpf.get(cpf):undefined;
+        const regMatch=registration?byRegistration.get(norm(registration)):undefined;
         if(cpfMatch&&regMatch&&cpfMatch.id!==regMatch.id)throw new Error('CPF e matrícula pertencem a funcionários diferentes');
         if(cpfMatch||regMatch){skipped++;display.push({line,status:'skipped',message:'Já cadastrado: não será alterado',values});return;}
         const name=val('name'),role=val('role');
