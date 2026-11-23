@@ -213,15 +213,26 @@ export class HoleriteDatabase {
       registration,pis,workHours,bankName,bankBranch,bankAccount,pixKey,JSON.stringify(recurringEntries),sector,jobSite,costCenter);
     return this.getEmployee(id);
   }
-  importEmployeeBatch(rows: EmployeeInput[]): number {
-    if(!Array.isArray(rows)||rows.length>30000)throw new Error('Lote de funcionários inválido.');
+  runAtomicImport<T>(action:()=>T):T {
     this.db.exec('BEGIN IMMEDIATE');
-    try {
-      for(const row of rows)this.saveEmployee(row);
+    try{
+      const result=action();
       this.db.exec('COMMIT');
-      return rows.length;
+      return result;
     }catch(error){
       this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+  importEmployeeBatch(rows: EmployeeInput[]): number {
+    if(!Array.isArray(rows)||rows.length>30000)throw new Error('Lote de funcionários inválido.');
+    this.db.exec('SAVEPOINT employee_import');
+    try {
+      for(const row of rows)this.saveEmployee(row);
+      this.db.exec('RELEASE SAVEPOINT employee_import');
+      return rows.length;
+    }catch(error){
+      this.db.exec('ROLLBACK TO SAVEPOINT employee_import; RELEASE SAVEPOINT employee_import');
       throw error;
     }
   }
