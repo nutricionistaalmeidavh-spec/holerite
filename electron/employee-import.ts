@@ -118,12 +118,12 @@ export class EmployeeImporter {
       rows:filtered.slice(Math.max(0,offset),Math.max(0,offset)+20),
       samples:ready.slice(0,8).map(e=>({name:e.name,cpf:e.cpf,registration:e.registration||'',role:e.role,admissionDate:e.admissionDate}))};
   }
-  commit(token:string,mapping:EmployeeImportMapping,allowPartial=false,edits:EmployeeImportEdits={}):{created:number;skipped:number;errors:number}{
+  commit(token:string,mapping:EmployeeImportMapping,allowPartial=false,edits:EmployeeImportEdits={}):{created:number;skipped:number}{
     const {ready,skipped,errors}=this.prepare(token,mapping,edits);
     if(errors.length&&!allowPartial)throw new Error('Revise as linhas inválidas antes de cadastrar: '+errors.slice(0,4).join('; '));
     if(!ready.length&&skipped===0)throw new Error('Nenhum funcionário válido para cadastrar.');
     const created=ready.length?this.db.importEmployeeBatch(ready):0;
     this.pending.delete(token);
-    return {created,skipped,errors:errors.length};
+    return {created,skipped};
   }
 }
