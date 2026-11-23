@@ -110,3 +110,12 @@ nav{display:flex;flex-direction:column;gap:4px}.nav-link{border:0;background:tra
 .time-generation-modal .time-legal{margin-top:14px!important;font-size:11px!important}
 .time-generation-actions{display:flex;justify-content:flex-end;flex-wrap:wrap;padding-top:15px;margin-top:8px}
 @media(max-width:600px){.time-generation-modal{padding:19px 16px}.time-generation-actions{flex-direction:column}.time-generation-actions>.btn{width:100%}}
+
+/* Planilhas de importação: edição legível, paginação e rolagem horizontal sem quebrar o layout. */
+.import-edit-scroll{max-height:450px;overflow:auto;overscroll-behavior:contain;}
+.import-edit-table{min-width:900px;border-collapse:separate;border-spacing:0;}
+.import-edit-table th{position:sticky;top:0;background:var(--surface,#fff);z-index:2;white-space:nowrap;}
+.import-edit-table input{min-width:136px;max-width:220px;width:100%;padding:7px 9px;border-radius:6px;border:1px solid #cbd5e1;background:transparent;color:inherit;font:inherit;font-size:12px;}
+.import-edit-table input:focus{outline:2px solid #477be2;outline-offset:1px;}
+.import-edit-table td:first-child,.import-edit-table th:first-child{position:sticky;left:0;background:var(--surface,#fff);z-index:3;}
+@media(max-width:700px){.import-edit-scroll{max-height:330px;}.import-edit-table input{min-width:118px;}}

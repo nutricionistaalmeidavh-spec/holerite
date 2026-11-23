@@ -20,7 +20,9 @@
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "electron-updater": "6.8.11",
-    "exceljs": "^4.4.0"
+    "exceljs": "^4.4.0",
+    "papaparse": "^5.7.1",
+    "iconv-lite": "^0.7.3"
   },
   "devDependencies": {
     "@types/node": "24.10.0",
@@ -34,7 +36,8 @@
     "typescript": "5.9.3",
     "vite": "7.2.2",
     "wait-on": "9.0.1",
-    "playwright-core": "1.56.1"
+    "playwright-core": "1.56.1",
+    "@types/papaparse": "^5.3.16"
   },
   "build": {
     "appId": "dev.artisys.holerites",

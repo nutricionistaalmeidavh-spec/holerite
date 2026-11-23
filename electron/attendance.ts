@@ -150,6 +150,17 @@ export class AttendanceStore {
     this.employee(employeeId);
     return this.db.prepare('SELECT ta.date,ta.action,ta.before_json,ta.after_json,ta.reason,ta.created_at,ta.actor_id,op.name AS actor_name FROM time_audit ta LEFT JOIN time_operators op ON ta.actor_id=op.id WHERE ta.employee_id=? AND ta.competence=? ORDER BY ta.created_at DESC LIMIT 300').all(employeeId,competence) as Row[];
   }
+  atomicImport<T>(fn:()=>T):T{
+    this.db.exec('SAVEPOINT complete_time_import');
+    try{
+      const result=fn();
+      this.db.exec('RELEASE SAVEPOINT complete_time_import');
+      return result;
+    }catch(error){
+      this.db.exec('ROLLBACK TO SAVEPOINT complete_time_import; RELEASE SAVEPOINT complete_time_import');
+      throw error;
+    }
+  }
   saveMatrix(changes:MatrixChange[],overwriteImported=false):number {
     if(!Array.isArray(changes)||!changes.length||changes.length>30000)throw new Error('Informe de 1 a 30.000 dias por operação.');
     const members=new Map<string,{companyId:string;revision:number}>();
@@ -176,7 +187,7 @@ export class AttendanceStore {
       if(current&&current.source!=='suggested'&&item.day.source==='imported'&&!overwriteImported)
         throw new Error('Marcação real já existente em '+item.day.date+'. Use substituição explícita para alterar.');
     }
-    this.db.exec('BEGIN IMMEDIATE;');
+    this.db.exec('SAVEPOINT time_matrix;');
     try {
       for(const [group,member] of members){
         const [employeeId,competence]=group.split('|');
@@ -201,9 +212,9 @@ export class AttendanceStore {
         this.db.prepare('UPDATE time_sheets SET revision=revision+1,updated_at=? WHERE employee_id=? AND competence=?')
           .run(now(),id,competence);
       }
-      this.db.exec('COMMIT;');
+      this.db.exec('RELEASE SAVEPOINT time_matrix;');
       return changes.length;
-    }catch(e){this.db.exec('ROLLBACK;');throw e;}
+    }catch(e){this.db.exec('ROLLBACK TO SAVEPOINT time_matrix; RELEASE SAVEPOINT time_matrix;');throw e;}
   }
   reviewSuggestions(employeeIds:string[],competence:string):{reviewed:number;employees:number} {
     if(!Array.isArray(employeeIds)||!employeeIds.length||!validMonth(competence))

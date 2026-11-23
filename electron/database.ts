@@ -178,7 +178,7 @@ export class HoleriteDatabase {
     if (!Number.isInteger(dependents) || dependents<0 || dependents>30) throw new Error('Número de dependentes inválido.');
     if (typeof input.active !== 'boolean') throw new Error('Situação do funcionário inválida.');
     const id=input.id ? required(input.id,'ID',50):randomUUID();
-    const previous=input.id ? this.getEmployee(id) : null;
+    const previous=input.id&&this.db.prepare('SELECT 1 FROM employees WHERE id=?').get(id) ? this.getEmployee(id) : null;
     const registration=optional(input.registration??previous?.registration??'','Matrícula',40);
     const sector=optional(input.sector??previous?.sector??'','Setor',100);
     const jobSite=optional(input.jobSite??previous?.jobSite??'','Obra',120);
@@ -212,6 +212,29 @@ export class HoleriteDatabase {
     ).run(id,companyId,name,cpf,role,admissionDate,salaryCents,dependents,input.active ? 1:0,createdAt,
       registration,pis,workHours,bankName,bankBranch,bankAccount,pixKey,JSON.stringify(recurringEntries),sector,jobSite,costCenter);
     return this.getEmployee(id);
+  }
+  runAtomicImport<T>(action:()=>T):T {
+    this.db.exec('BEGIN IMMEDIATE');
+    try{
+      const result=action();
+      this.db.exec('COMMIT');
+      return result;
+    }catch(error){
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+  importEmployeeBatch(rows: EmployeeInput[]): number {
+    if(!Array.isArray(rows)||rows.length>30000)throw new Error('Lote de funcionários inválido.');
+    this.db.exec('SAVEPOINT employee_import');
+    try {
+      for(const row of rows)this.saveEmployee(row);
+      this.db.exec('RELEASE SAVEPOINT employee_import');
+      return rows.length;
+    }catch(error){
+      this.db.exec('ROLLBACK TO SAVEPOINT employee_import; RELEASE SAVEPOINT employee_import');
+      throw error;
+    }
   }
   savePayroll(input: PayrollInput): PayrollRecord {
     if (!input || typeof input !== 'object') throw new Error('Dados da folha inválidos.');

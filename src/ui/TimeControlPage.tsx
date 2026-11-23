@@ -1,7 +1,8 @@
 import {useCallback,useEffect,useMemo,useState} from 'react';
 import type {Employee,PointAttachment} from '../shared/types';
 import type {TimeConfig,TimeSheet,MatrixChange} from '../../electron/attendance';
-import type {ImportChoice,ImportMapping,ImportPreview,ImportField} from '../../electron/time-import';
+import type {ImportChoice,ImportMapping,ImportPreview,ImportField,TimeImportEdits} from '../../electron/time-import';
+import {CombinedImportPanel} from './CombinedImportPanel';
 import type {PointDay,WorkSchedule} from '../shared/time';
 import {defaultSchedule,previewMonth,workedMinutes,diagnosePointDays} from '../shared/time';
 
@@ -24,12 +25,12 @@ function actualHours(day:PointDay):string {
   try{return duration(workedMinutes(day));}catch{return '—';}
 }
 const weekdays=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
-type View='individual'|'matrix'|'import'|'settings'|'reports';
+type View='individual'|'matrix'|'import'|'bundle'|'settings'|'reports';
 type GenerationRequest={scope:'individual'|'team';companyId:string;competence:string;employeeId?:string};
 
-export function TimeControlPage({companyId,competence,employees,onPayrollUpdated,initialEmployeeId=''}:{
+export function TimeControlPage({companyId,competence,employees,onPayrollUpdated,onEmployeesImported,initialEmployeeId=''}:{
   companyId:string;competence:string;employees:Employee[];
-  initialEmployeeId?:string;onPayrollUpdated:(employeeId:string)=>void
+  initialEmployeeId?:string;onPayrollUpdated:(employeeId:string)=>void;onEmployeesImported?:()=>Promise<void>
 }){
   const [config,setConfig]=useState<TimeConfig|null>(null);
   const [employeeId,setEmployeeId]=useState('');
@@ -47,6 +48,11 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
   const [mapping,setMapping]=useState<ImportMapping>({});
   const [preview,setPreview]=useState<ImportPreview|null>(null);
   const [allowReplace,setAllowReplace]=useState(false);
+  const [allowPartial,setAllowPartial]=useState(false);
+  const [timeEdits,setTimeEdits]=useState<TimeImportEdits>({});
+  const [timeDirty,setTimeDirty]=useState(false);
+  const [timePage,setTimePage]=useState(0);
+  const [timeOnlyErrors,setTimeOnlyErrors]=useState(false);
   const [audit,setAudit]=useState<Array<{date:string|null;action:string;reason:string;created_at:string;actor_name?:string}>>([]);
   const [attachments,setAttachments]=useState<PointAttachment[]>([]);
   const [bankBalance,setBankBalance]=useState(0);
@@ -61,6 +67,13 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
     setBusy(true);setError('');setNotice('');
     try{await task();}catch(e){setError(e instanceof Error?e.message:String(e));}
     finally{setBusy(false);}
+  };
+  const reloadTimePreview=async(offsetPage=timePage,onlyErrors=timeOnlyErrors,replacement=allowReplace)=>{
+    if(!importChoice)return;
+    const result=await window.holerites.previewTimeFile({
+      token:importChoice.token,mapping,edits:timeEdits,offset:offsetPage*20,onlyErrors,allowReplace:replacement
+    });
+    setPreview(result);setTimePage(offsetPage);setTimeOnlyErrors(onlyErrors);setTimeDirty(false);
   };
   useEffect(()=>{
     let mounted=true;
@@ -211,12 +224,13 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
           <li>1. Jornada</li><li>2. Preenchimento</li><li>3. Conferência em lote</li><li>4. Impressão e assinatura</li><li>5. Holerite</li>
         </ol>
       </div>
+      <button className="btn btn-primary" type="button" disabled={!ready} onClick={()=>setView('import')}>Importar fichas CSV/XLSX</button>
     </section>
     {error&&<div className="error-banner" role="alert">{error}<button aria-label="Fechar erro" onClick={()=>setError('')}>×</button></div>}
     {notice&&<div className="success-banner" role="status">{notice}</div>}
     {ready&&<>
       <div className="time-toolbar" role="tablist" aria-label="Áreas do controle de ponto">
-        {([['individual','Ficha individual'],['matrix','Matriz da equipe'],['import','Importar planilha'],['reports','Relatórios'],['settings','Configurações']] as [View,string][]).map(([v,label])=>
+        {([['individual','Ficha individual'],['matrix','Matriz da equipe'],['import','Importar planilha'],['bundle','Importação completa'],['reports','Relatórios'],['settings','Configurações']] as [View,string][]).map(([v,label])=>
           <button key={v} className={'btn '+(view===v?'btn-primary':'btn-secondary')} aria-selected={view===v} role="tab"
             onClick={()=>setView(v)}>{label}</button>)}
       </div>
@@ -384,37 +398,82 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
           <tbody>{reportRows.map(s=>{const employee=activeEmployees.find(e=>e.id===s.employeeId);return <tr key={s.employeeId}><td>{s.employeeName}</td><td>{employee?.sector||'—'}</td><td>{employee?.jobSite||'—'}</td><td>{employee?.costCenter||'—'}</td><td>{duration(s.summary.workedMinutes)}</td><td>{duration(s.summary.overtimeMinutes)}</td><td>{duration(s.summary.nightMinutes)}</td><td>{duration(s.summary.lateMinutes)}</td><td>{s.summary.absences}</td><td>{s.status==='closed'?'Fechado':'Aberto'}</td></tr>;})}</tbody>
         </table></div>
       </section>}
+      {view==='bundle'&&<CombinedImportPanel companyId={companyId} onDone={async()=>{
+        await onEmployeesImported?.();await loadMatrix();if(employeeId)await loadSheet();
+      }}/>}
       {view==='import'&&<section className="card time-sheet">
         <h2>Importar ficha de ponto CSV / Excel</h2>
-        <p>Identifique os funcionários por CPF, matrícula ou nome. Revise o mapeamento antes da gravação. Até 30.000 linhas e 30 MB por arquivo. O mapeamento é reutilizado automaticamente para planilhas com as mesmas colunas.</p>
-        <button className="btn btn-secondary" disabled={busy} onClick={()=>void run(async()=>{
-          await window.holerites.exportTimeMatrix({companyId,competence,format:'template'});
-        })}>Baixar modelo XLSX</button>
-        <button className="btn btn-primary" disabled={busy} onClick={()=>void run(async()=>{
-          const choice=await window.holerites.chooseTimeFile(companyId);
-          setImportChoice(choice);setMapping(choice?.suggestedMapping??{});setPreview(null);
-        })}>Selecionar arquivo CSV/XLSX</button>
+        <p>Arquivos diários ou matrizes mensais, até 30.000 marcações e 30 MB. Modelos oficiais são reconhecidos automaticamente; arquivos externos podem ser mapeados abaixo.</p>
+        <div className="time-actions">
+          <button className="btn btn-secondary" disabled={busy} onClick={()=>void run(async()=>{
+            await window.holerites.exportTimeMatrix({companyId,competence,format:'template'});
+          })}>Modelo de ponto diário XLSX</button>
+          <button className="btn btn-secondary" disabled={busy} onClick={()=>void run(async()=>{
+            await window.holerites.exportTimeMatrix({companyId,competence,format:'matrix-template'});
+          })}>Modelo de matriz mensal XLSX</button>
+          <button className="btn btn-primary" disabled={busy} onClick={()=>void run(async()=>{
+            const choice=await window.holerites.chooseTimeFile(companyId);
+            if(choice){setImportChoice(choice);setMapping(choice.suggestedMapping);setPreview(null);
+              setTimeEdits({});setTimePage(0);setTimeDirty(false);}
+          })}>Selecionar arquivo CSV/XLSX</button>
+        </div>
         {importChoice&&<>
-          <p><strong>{importChoice.filename}</strong> · {importChoice.count} linhas</p>
+          <p><strong>{importChoice.filename}</strong> · {importChoice.count} marcações · Layout: {importChoice.layout==='monthly'?'Matriz mensal':'Registro diário'}</p>
           <div className="time-form-grid">{importFields.map(field=><label key={field.key} className="field">
-            <span>{field.label}</span><select value={mapping[field.key]||''} onChange={e=>{setMapping(current=>({...current,[field.key]:e.target.value}));setPreview(null);}}>
+            <span>{field.label}</span><select value={mapping[field.key]||''} onChange={e=>{
+              setMapping(current=>({...current,[field.key]:e.target.value}));setPreview(null);setTimeDirty(false);
+            }}>
               <option value="">Não importar</option>{importChoice.headers.map(h=><option key={h} value={h}>{h}</option>)}
             </select>
           </label>)}</div>
           <div className="time-actions">
-            <button className="btn btn-secondary" disabled={busy} onClick={()=>void run(async()=>setPreview(await window.holerites.previewTimeFile({token:importChoice.token,mapping})))}>Conferir prévia</button>
-            <label><input type="checkbox" checked={allowReplace} onChange={e=>setAllowReplace(e.target.checked)}/> Substituir marcações reais existentes nas mesmas datas</label>
-            <button className="btn btn-primary" disabled={busy||!preview||preview.errors.length>0||preview.accepted===0}
+            <button className="btn btn-secondary" disabled={busy} onClick={()=>void run(()=>reloadTimePreview(0,false))}>
+              {timeDirty?'Validar células editadas':'Conferir prévia'}</button>
+            <label><input type="checkbox" checked={allowReplace} onChange={e=>{
+              setAllowReplace(e.target.checked);setPreview(null);
+            }}/> Substituir marcações reais já existentes</label>
+            <label><input type="checkbox" checked={allowPartial} onChange={e=>setAllowPartial(e.target.checked)}/> Importar somente linhas válidas</label>
+            <button className="btn btn-primary" disabled={busy||!preview||timeDirty||preview.accepted===0||preview.errors.length>0&&!allowPartial}
               onClick={()=>void run(async()=>{
-                const result=await window.holerites.commitTimeFile({token:importChoice.token,mapping,allowReplace});
-                setNotice(result.imported+' marcações importadas com sucesso.');
+                if(preview?.errors.length&&allowPartial&&!window.confirm('Importar apenas '+preview.accepted+' marcações válidas, deixando '+preview.errors.length+' com erro sem gravar?'))return;
+                const result=await window.holerites.commitTimeFile({token:importChoice.token,mapping,allowReplace,allowPartial,edits:timeEdits});
+                setNotice(result.imported+' marcações importadas. Confira o mês em lote ou imprima as fichas.');
                 setImportChoice(null);setPreview(null);await loadMatrix();if(employeeId)await loadSheet();
-              })}>Importar {preview?.accepted||0} linhas</button>
+              })}>Importar {timeDirty?'após validar':preview?.accepted||0} linhas</button>
           </div>
-          {preview&&<><p>{preview.accepted} válidas · {preview.errors.length} com erro</p>
-            {preview.errors.length>0&&<ul className="time-import-errors">{preview.errors.slice(0,30).map((err,i)=><li key={i}>{err}</li>)}</ul>}
-            <table className="data-table"><thead><tr><th>Funcionário</th><th>Data</th><th>Tipo</th><th>Entrada</th><th>Saída</th></tr></thead>
-              <tbody>{preview.samples.map((row,i)=><tr key={i}><td>{row.employee}</td><td>{row.date}</td><td>{row.kind}</td><td>{row.start}</td><td>{row.end}</td></tr>)}</tbody></table>
+          {preview&&<>
+            <p><strong>{preview.accepted} válidas</strong> · {preview.errors.length} com erro</p>
+            {preview.errors.length>0&&<div className="time-actions">
+              <button className="btn btn-secondary" disabled={busy} onClick={()=>void run(async()=>{
+                if(await window.holerites.exportImportErrors(preview.errors))setNotice('Relatório de erros CSV salvo.');
+              })}>Exportar erros CSV</button>
+            </div>}
+            <div className="time-actions">
+              <label><input type="checkbox" checked={timeOnlyErrors} onChange={e=>void run(()=>reloadTimePreview(0,e.target.checked))}/> Somente erros</label>
+              <span>{preview.rows.length} de {preview.totalRows} linhas exibidas</span>
+            </div>
+            <div className="table-scroll import-edit-scroll">
+              <table className="data-table import-edit-table"><thead><tr><th>Linha</th><th>Estado</th>
+                {importFields.map(field=><th key={field.key}>{field.label}</th>)}
+              </tr></thead><tbody>{preview.rows.map((row,index)=><tr key={row.rowKey}>
+                <td>{row.line}</td><td title={row.message}>{row.status==='valid'?'Válido':'Corrigir'}</td>
+                {importFields.map(field=><td key={field.key}><input
+                  aria-label={field.label+' linha '+row.line}
+                  value={timeEdits[row.rowKey]?.[field.key]??row.values[field.key]}
+                  onChange={e=>{
+                    setTimeEdits(old=>({...old,[row.rowKey]:{...old[row.rowKey],[field.key]:e.target.value}}));setTimeDirty(true);
+                  }}/></td>)}
+              </tr>)}</tbody></table>
+            </div>
+            {preview.rows.some(row=>row.status==='error')&&<ul className="time-import-errors">
+              {preview.rows.filter(row=>row.status==='error').map((row,i)=><li key={i}>Linha {row.line}: {row.message}</li>)}
+            </ul>}
+            <div className="time-actions">
+              <button className="btn btn-secondary" disabled={busy||timePage===0} onClick={()=>void run(()=>reloadTimePreview(timePage-1))}>Anterior</button>
+              <span>Página {timePage+1}</span>
+              <button className="btn btn-secondary" disabled={busy||(timePage+1)*20>=preview.totalRows} onClick={()=>void run(()=>reloadTimePreview(timePage+1))}>Próxima</button>
+              {timeDirty&&<button className="btn btn-primary" disabled={busy} onClick={()=>void run(()=>reloadTimePreview())}>Revalidar alterações</button>}
+            </div>
           </>}
         </>}
       </section>}

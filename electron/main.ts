@@ -7,12 +7,25 @@ import { HoleriteDatabase } from './database';
 import { receiptHTML } from './receipt';
 import {pointReceiptHTML,pointReceiptBatchHTML} from './point-receipt';
 import {TimeImporter} from './time-import';
+import {EmployeeImporter} from './employee-import';
+import {CombinedImporter} from './combined-import';
+import {makeTemplate} from './template-workbook';
 import {exportTimeFile} from './time-export';
 import type {PayrollRecord} from '../src/shared/types';
 
 let mainWindow: BrowserWindow | null = null;
 let storage: HoleriteDatabase;
 let timeImporter: TimeImporter;
+let employeeImporter: EmployeeImporter;
+let combinedImporter: CombinedImporter;
+
+async function saveTemplate(kind:'employees'|'combined',name:string):Promise<boolean>{
+  const selected=await dialog.showSaveDialog(mainWindow!,{title:'Salvar modelo de planilha',defaultPath:name,
+    filters:[{name:'Excel XLSX',extensions:['xlsx']}]});
+  if(selected.canceled||!selected.filePath)return false;
+  await makeTemplate(kind).xlsx.writeFile(selected.filePath);
+  return true;
+}
 
 const formatFilename = (p: PayrollRecord) => {
   const name = p.details.employee.name.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9_-]+/gi,'-').slice(0,45);
@@ -110,6 +123,32 @@ function bindIPC() {
   bind('snapshot',()=>storage.snapshot());
   bind('save-company',v=>storage.saveCompany(v));
   bind('save-employee',v=>storage.saveEmployee(v));
+  bind('employee-import-choose',async(companyId:string)=>{
+    const result=await dialog.showOpenDialog(mainWindow!,{title:'Importar funcionários',properties:['openFile'],filters:[{name:'Planilhas',extensions:['csv','xlsx']}]});
+    if(result.canceled||!result.filePaths[0])return null;
+    return employeeImporter.choose(companyId,result.filePaths[0]);
+  });
+  bind('employee-import-preview',(v:any)=>employeeImporter.preview(v.token,v.mapping,v.edits??{},v.offset??0,v.onlyErrors===true));
+  bind('employee-import-commit',(v:any)=>employeeImporter.commit(v.token,v.mapping,v.allowPartial===true,v.edits??{}));
+  bind('employee-import-template',async()=>saveTemplate('employees','Modelo-Funcionarios.xlsx'));
+  bind('package-import-template',async()=>saveTemplate('combined','Modelo-Funcionarios-e-Ponto.xlsx'));
+  bind('package-import-choose',async(companyId:string)=>{
+    const selected=await dialog.showOpenDialog(mainWindow!,{title:'Importar funcionários e ponto juntos',properties:['openFile'],filters:[{name:'Excel XLSX',extensions:['xlsx']}]});
+    if(selected.canceled||!selected.filePaths[0])return null;
+    return combinedImporter.choose(companyId,selected.filePaths[0]);
+  });
+  bind('package-import-preview',(v:any)=>combinedImporter.preview(v));
+  bind('package-import-commit',(v:any)=>combinedImporter.commit(v));
+  bind('import-save-errors',async(v:any)=>{
+    if(!v||!Array.isArray(v.errors)||v.errors.length>30000||v.errors.some((e:unknown)=>typeof e!=='string'||e.length>1200))
+      throw new Error('Lista de erros inválida.');
+    const selected=await dialog.showSaveDialog(mainWindow!,{title:'Exportar erros de importação',defaultPath:'Erros-Importacao.csv',filters:[{name:'CSV',extensions:['csv']}]});
+    if(selected.canceled||!selected.filePath)return false;
+    const safe=(text:string)=>'"'+(/^[\s]*[=+@\-]/.test(text)?"'"+text:text).replace(/"/g,'""')+'"';
+    const rows=v.errors.map((e:string)=>{const parsed=/^Linha (\d+): (.*)$/.exec(e);return [parsed?.[1]||'',parsed?.[2]||e].map(safe).join(';');});
+    await writeFile(selected.filePath,'\uFEFFLinha;Problema\r\n'+rows.join('\r\n'),'utf8');
+    return true;
+  });
   bind('generate-monthly-batch',v=>storage.generateMonthlyBatch(v));
   bind('save-payroll',v=>storage.savePayroll(v));
   bind('finalize',v=>storage.finalizePayroll(v));
@@ -135,22 +174,26 @@ function bindIPC() {
     if(select.canceled||!select.filePaths[0])return null;
     return timeImporter.choose(companyId,select.filePaths[0]);
   });
-  bind('time-import-preview',(v:any)=>timeImporter.preview(v.token,v.mapping));
-  bind('time-import-commit',(v:any)=>timeImporter.commit(v.token,v.mapping,v.allowReplace===true));
+  bind('time-import-preview',(v:any)=>timeImporter.preview(v.token,v.mapping,v.edits??{},v.offset??0,v.onlyErrors===true,v.allowReplace===true));
+  bind('time-import-commit',(v:any)=>timeImporter.commit(v.token,v.mapping,v.allowReplace===true,v.allowPartial===true,v.edits??{}));
   bind('time-import-history',(id:string)=>storage.attendance.importHistory(id));
   bind('time-bank-balance',(v:any)=>storage.attendance.bankBalance(v.employeeId,v.competence));
   bind('time-export-matrix',async(v:any)=>{
     const format=v?.format;
-    if(!['csv','xlsx','template'].includes(format))throw new Error('Formato inválido.');
+    if(!['csv','xlsx','template','matrix-template'].includes(format))throw new Error('Formato inválido.');
     const ext=format==='csv'?'csv':'xlsx';
     const dialogResult=await dialog.showSaveDialog(mainWindow!,{
       title:format==='template'?'Salvar modelo de planilha':'Exportar matriz de ponto',
-      defaultPath:format==='template'?'Modelo-Controle-Ponto.xlsx':'Controle-Ponto-'+v.competence+'.'+ext,
+      defaultPath:format==='template'?'Modelo-Controle-Ponto.xlsx':format==='matrix-template'?'Modelo-Matriz-Mensal.xlsx':'Controle-Ponto-'+v.competence+'.'+ext,
       filters:[{name:ext.toUpperCase(),extensions:[ext]}]
     });
     if(dialogResult.canceled||!dialogResult.filePath)return false;
-    await exportTimeFile({store:storage.attendance,employees:storage.snapshot().employees,
-      companyId:v.companyId,competence:v.competence,format,filePath:dialogResult.filePath});
+    if(format==='template'||format==='matrix-template'){
+      await makeTemplate(format==='template'?'time':'matrix').xlsx.writeFile(dialogResult.filePath);
+    }else{
+      await exportTimeFile({store:storage.attendance,employees:storage.snapshot().employees,
+        companyId:v.companyId,competence:v.competence,format,filePath:dialogResult.filePath});
+    }
     return true;
   });
   bind('time-export-pdf',(v:any)=>printTime(v.employeeId,v.competence,'pdf'));
@@ -301,6 +344,8 @@ app.whenReady().then(async()=>{
   await mkdir(directory,{recursive:true});
   storage=new HoleriteDatabase(join(directory,'holerites.sqlite'));
   timeImporter=new TimeImporter(storage.attendance,()=>storage.snapshot().employees);
+  employeeImporter=new EmployeeImporter(storage);
+  combinedImporter=new CombinedImporter(storage);
   bindIPC();
   await createMain();
   checkUpdatesAtStartup();
