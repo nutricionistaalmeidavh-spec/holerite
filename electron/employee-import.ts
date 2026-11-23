@@ -96,7 +96,10 @@ export class EmployeeImporter {
         if(pis&&pis.length!==11)throw new Error('PIS/NIS deve ter 11 dígitos');
         for(const [key,max] of [['sector',100],['jobSite',120],['costCenter',100],['workHours',100]] as const)
           if(val(key).length>max)throw new Error('Campo '+key+' excede '+max+' caracteres');
-        const active=!['inativo','inativa','nao','0','false','desligado'].includes(norm(val('active')));
+        const situation=norm(val('active'));
+        if(situation&&!['ativo','ativa','sim','true','1','inativo','inativa','nao','false','0','desligado'].includes(situation))
+          throw new Error('Situação inválida: use Ativo ou Inativo');
+        const active=!['inativo','inativa','nao','0','false','desligado'].includes(situation);
         ready.push({id:p.ids[index],companyId:p.companyId,name,cpf,registration,role,admissionDate,salaryCents,
           dependents,active,sector:val('sector'),jobSite:val('jobSite'),costCenter:val('costCenter'),pis,workHours:val('workHours')});
         display.push({line,status:'new',message:'Pronto para cadastrar',values});
