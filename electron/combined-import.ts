@@ -33,7 +33,7 @@ export class CombinedImporter{
       throw new Error('Pacote expirado. Selecione a planilha novamente.');
     return this.pending;
   }
-  preview(input:{employeeToken:string;timeToken:string;employeeMapping:EmployeeImportMapping;timeMapping:ImportMapping}):CombinedImportPreview{
+  preview(input:{employeeToken:string;timeToken:string;employeeMapping:EmployeeImportMapping;timeMapping:ImportMapping;allowReplace?:boolean}):CombinedImportPreview{
     this.selected(input.employeeToken,input.timeToken);
     const employees=this.employee.preview(input.employeeToken,input.employeeMapping);
     if(employees.errors.length){
@@ -41,7 +41,7 @@ export class CombinedImporter{
       return {employees,time:null,warning:'Corrija os funcionários para validar o vínculo das fichas de ponto.'};
     }
     this.provisional=this.employee.planned(input.employeeToken,input.employeeMapping);
-    const time=this.time.preview(input.timeToken,input.timeMapping);
+    const time=this.time.preview(input.timeToken,input.timeMapping,{},0,false,input.allowReplace===true);
     return {employees,time,warning:''};
   }
   commit(input:{employeeToken:string;timeToken:string;employeeMapping:EmployeeImportMapping;timeMapping:ImportMapping;allowReplace?:boolean}):{created:number;skipped:number;imported:number}{
