@@ -129,20 +129,31 @@ export class TimeImporter {
       throw new Error('Associe Data e pelo menos uma identificação do funcionário.');
     if(Object.values(mapping).some(value=>value&&!p.headers.includes(value)))throw new Error('Coluna inexistente no arquivo.');
     const employees=this.employees().filter(e=>e.companyId===p.companyId),accepted:MatrixChange[]=[],errors:string[]=[],display:TimeImportRow[]=[];
+    const byCpf=new Map<string,Employee[]>(),byRegistration=new Map<string,Employee[]>(),byName=new Map<string,Employee[]>();
+    const add=(map:Map<string,Employee[]>,key:string,e:Employee)=>{
+      if(!key)return;
+      const matches=map.get(key)||[];matches.push(e);map.set(key,matches);
+    };
+    for(const employee of employees){
+      add(byCpf,employee.cpf.replace(/\D/g,''),employee);
+      add(byRegistration,norm(employee.registration||''),employee);
+      add(byName,norm(employee.name),employee);
+    }
     const seen=new Set<string>(),sheets=new Map<string,ReturnType<AttendanceStore['getSheet']>>();
     for(let i=0;i<p.rows.length;i++){
       const row=p.rows[i],line=p.lines[i];
       const at=(field:ImportField)=>Object.prototype.hasOwnProperty.call(edits[i]||{},field)
         ?edits[i][field]:mapping[field]?row[mapping[field]!]:undefined;
       const identifier=(f:ImportField)=>cellText(at(f));
-      const cpf=identifier('cpf').replace(/\D/g,'');
+      const rawCpf=at('cpf'),cpfDigits=identifier('cpf').replace(/\D/g,'');
+      const cpf=typeof rawCpf==='number'?cpfDigits.padStart(11,'0'):cpfDigits;
       const registration=norm(identifier('registration')),name=norm(identifier('employee'));
       const values={} as Record<ImportField,string>;
       for(const field of Object.keys(ALIASES) as ImportField[])values[field]=identifier(field);
       try{
-        let matches=cpf?employees.filter(e=>e.cpf.replace(/\D/g,'')===cpf):[];
-        if(!matches.length&&registration)matches=employees.filter(e=>norm(e.registration||'')===registration);
-        if(!matches.length&&name)matches=employees.filter(e=>norm(e.name)===name);
+        let matches=cpf?(byCpf.get(cpf)||[]):[];
+        if(!matches.length&&registration)matches=byRegistration.get(registration)||[];
+        if(!matches.length&&name)matches=byName.get(name)||[];
         if(matches.length!==1)throw new Error(matches.length?'Funcionário ambíguo':'Funcionário não localizado');
         const employee=matches[0],date=parseImportDate(at('date'));
         if(!validDate(date))throw new Error('Data inválida');
