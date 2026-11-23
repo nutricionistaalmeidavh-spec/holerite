@@ -163,7 +163,7 @@ export interface HoleriteAPI {
   commitEmployeeFile(input:{token:string;mapping:EmployeeImportMapping;edits?:EmployeeImportEdits;allowPartial?:boolean}):Promise<{created:number;skipped:number}>;
   exportEmployeeTemplate():Promise<boolean>;
   chooseCombinedFile(companyId:string):Promise<CombinedImportChoice|null>;
-  previewCombinedFile(input:{employeeToken:string;timeToken:string;employeeMapping:EmployeeImportMapping;timeMapping:ImportMapping}):Promise<CombinedImportPreview>;
+  previewCombinedFile(input:{employeeToken:string;timeToken:string;employeeMapping:EmployeeImportMapping;timeMapping:ImportMapping;allowReplace?:boolean}):Promise<CombinedImportPreview>;
   commitCombinedFile(input:{employeeToken:string;timeToken:string;employeeMapping:EmployeeImportMapping;timeMapping:ImportMapping;allowReplace?:boolean}):Promise<{created:number;skipped:number;imported:number}>;
   exportCombinedTemplate():Promise<boolean>;
   exportImportErrors(errors:string[]):Promise<boolean>;
