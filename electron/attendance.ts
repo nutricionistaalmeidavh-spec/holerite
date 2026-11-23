@@ -176,7 +176,7 @@ export class AttendanceStore {
       if(current&&current.source!=='suggested'&&item.day.source==='imported'&&!overwriteImported)
         throw new Error('Marcação real já existente em '+item.day.date+'. Use substituição explícita para alterar.');
     }
-    this.db.exec('BEGIN IMMEDIATE;');
+    this.db.exec('SAVEPOINT time_matrix;');
     try {
       for(const [group,member] of members){
         const [employeeId,competence]=group.split('|');
@@ -201,9 +201,9 @@ export class AttendanceStore {
         this.db.prepare('UPDATE time_sheets SET revision=revision+1,updated_at=? WHERE employee_id=? AND competence=?')
           .run(now(),id,competence);
       }
-      this.db.exec('COMMIT;');
+      this.db.exec('RELEASE SAVEPOINT time_matrix;');
       return changes.length;
-    }catch(e){this.db.exec('ROLLBACK;');throw e;}
+    }catch(e){this.db.exec('ROLLBACK TO SAVEPOINT time_matrix; RELEASE SAVEPOINT time_matrix;');throw e;}
   }
   reviewSuggestions(employeeIds:string[],competence:string):{reviewed:number;employees:number} {
     if(!Array.isArray(employeeIds)||!employeeIds.length||!validMonth(competence))
