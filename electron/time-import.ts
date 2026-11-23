@@ -113,7 +113,9 @@ export class TimeImporter {
     const original=await readSheet(path,sheetName);
     const monthly=original.headers.some(h=>norm(h)==='competencia')&&original.headers.some(h=>/^\d{1,2}\s+/.test(h));
     const sheet=monthly?expandMonthly(original):original;
-    const fileHash=createHash('sha256').update(await readFile(path)).update(sheet.sheetName).digest('hex');
+    const hasher=createHash('sha256').update(await readFile(path));
+    if(sheetName)hasher.update(sheet.sheetName);
+    const fileHash=hasher.digest('hex');
     const token=randomUUID();
     this.pending.clear();
     this.pending.set(token,{companyId,filename:basename(path),hash:fileHash,headers:sheet.headers,rows:sheet.rows,lines:sheet.lineNumbers,
