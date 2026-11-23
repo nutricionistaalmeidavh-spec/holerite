@@ -13,7 +13,7 @@ export type ImportField='employee'|'cpf'|'registration'|'date'|'kind'|'start'|'b
 export type ImportMapping=Partial<Record<ImportField,string>>;
 export type TimeImportEdits=Record<number,Partial<Record<ImportField,string>>>;
 export interface ImportChoice {token:string;filename:string;headers:string[];suggestedMapping:ImportMapping;count:number;layout?:'daily'|'monthly';sheetName?:string;}
-export interface TimeImportRow {line:number;status:'valid'|'error';message:string;values:Record<ImportField,string>;}
+export interface TimeImportRow {line:number;rowKey:number;status:'valid'|'error';message:string;values:Record<ImportField,string>;}
 export interface ImportPreview {accepted:number;errors:string[];samples:Array<{employee:string;date:string;kind:string;start:string;end:string}>;
   rows:TimeImportRow[];totalRows:number;}
 type Pending={companyId:string;filename:string;hash:string;headers:string[];rows:CellRow[];lines:number[];layout:'daily'|'monthly'};
@@ -132,8 +132,8 @@ export class TimeImporter {
     const seen=new Set<string>(),sheets=new Map<string,ReturnType<AttendanceStore['getSheet']>>();
     for(let i=0;i<p.rows.length;i++){
       const row=p.rows[i],line=p.lines[i];
-      const at=(field:ImportField)=>Object.prototype.hasOwnProperty.call(edits[line]||{},field)
-        ?edits[line][field]:mapping[field]?row[mapping[field]!]:undefined;
+      const at=(field:ImportField)=>Object.prototype.hasOwnProperty.call(edits[i]||{},field)
+        ?edits[i][field]:mapping[field]?row[mapping[field]!]:undefined;
       const identifier=(f:ImportField)=>cellText(at(f));
       const cpf=identifier('cpf').replace(/\D/g,'');
       const registration=norm(identifier('registration')),name=norm(identifier('employee'));
@@ -166,11 +166,11 @@ export class TimeImporter {
         if(previous&&previous.source!=='suggested'&&!allowReplace)
           throw new Error('Já existe marcação real; habilite substituição explícita');
         accepted.push({employeeId:employee.id,competence,day});
-        display.push({line,status:'valid',message:'Pronto para importar',values});
+              display.push({line,rowKey:i,status:'valid',message:'Pronto para importar',values});
       }catch(error){
         const message=error instanceof Error?error.message:String(error);
         errors.push('Linha '+line+': '+message);
-        display.push({line,status:'error',message,values});
+                display.push({line,rowKey:i,status:'error',message,values});
       }
     }
     return {p,accepted,errors,display};
@@ -193,9 +193,12 @@ export class TimeImporter {
     if(errors.length&&!allowPartial)throw new Error('Corrija linhas inválidas: '+errors.slice(0,4).join('; '));
     if(!accepted.length)throw new Error('Nenhuma marcação válida para importar.');
     if(this.store.hasImportedHash(p.companyId,p.hash))throw new Error('Este arquivo já foi importado.');
-    const imported=this.store.saveMatrix(accepted,allowReplace);
-    this.store.recordImport(p.companyId,p.filename,p.hash,imported);
-    this.store.saveImportMapping(p.companyId,p.headers,mapping as Record<string,string>);
+    const imported=this.store.atomicImport(()=>{
+      const saved=this.store.saveMatrix(accepted,allowReplace);
+      this.store.recordImport(p.companyId,p.filename,p.hash,saved);
+      this.store.saveImportMapping(p.companyId,p.headers,mapping as Record<string,string>);
+      return saved;
+    });
     this.pending.delete(token);
     return {imported};
   }
