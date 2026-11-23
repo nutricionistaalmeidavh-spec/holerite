@@ -1,6 +1,6 @@
 {
   "name": "artisys-holerites",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "private": true,
   "description": "ArtiSys Ponto e Folha — controle de ponto e holerites offline",
   "main": "dist-electron/main.js",
@@ -14,7 +14,8 @@
     "test": "node --import tsx --test src/shared/*.test.ts electron/*.test.ts src/ui/*.test.tsx",
     "dist:win": "npm run build && electron-builder --win nsis --publish never",
     "publish:win": "npm run build && electron-builder --win nsis --publish always",
-    "qa:screenshots": "node scripts/qa-screenshots.mjs"
+    "qa:screenshots": "node scripts/qa-screenshots.mjs",
+    "prebuild": "node scripts/generate-icon.mjs"
   },
   "dependencies": {
     "react": "19.2.0",
@@ -34,7 +35,8 @@
     "typescript": "5.9.3",
     "vite": "7.2.2",
     "wait-on": "9.0.1",
-    "playwright-core": "1.56.1"
+    "playwright-core": "1.56.1",
+    "sharp": "0.35.5"
   },
   "build": {
     "appId": "dev.artisys.holerites",
@@ -57,12 +59,15 @@
           ]
         }
       ],
-      "artifactName": "ArtiSys-Holerites-Setup-${version}.${ext}"
+      "artifactName": "ArtiSys-Holerites-Setup-${version}.${ext}",
+      "icon": "build/icon.ico"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true
+      "createDesktopShortcut": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
     },
     "publish": {
       "provider": "github",

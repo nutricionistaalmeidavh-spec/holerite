@@ -11,3 +11,7 @@ release/
 .DS_Store
 .env*
 !.env.example
+
+# Built from the version-controlled SVG icon sources
+build/icon.ico
+build/icon.png
