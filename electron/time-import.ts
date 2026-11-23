@@ -186,6 +186,9 @@ export class TimeImporter {
       })};
   }
   commit(token:string,mapping:ImportMapping,allowReplace=false,allowPartial=false,edits:TimeImportEdits={}):{imported:number} {
+    const pending=this.pending.get(token);
+    if(!pending)throw new Error('Prévia de importação expirada.');
+    if(this.store.hasImportedHash(pending.companyId,pending.hash))throw new Error('Este arquivo já foi importado.');
     const {p,accepted,errors}=this.prepare(token,mapping,edits,allowReplace);
     if(errors.length&&!allowPartial)throw new Error('Corrija linhas inválidas: '+errors.slice(0,4).join('; '));
     if(!accepted.length)throw new Error('Nenhuma marcação válida para importar.');
