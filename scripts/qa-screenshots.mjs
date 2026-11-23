@@ -102,7 +102,7 @@ try {
   await go('Funcionários');
   await screenshot('05-funcionarios-vazio', 'Funcionários: nenhum colaborador');
   await page.getByRole('button', {name:'Importar funcionários CSV/XLSX'}).click();
-  await page.getByRole('button', {name:'Baixar modelo XLSX'}).waitFor();
+  await page.getByRole('button', {name:'Baixar modelo de funcionários'}).waitFor();
   await screenshot('05b-importacao-funcionarios', 'Importação de funcionários CSV/XLSX visível na tela da equipe');
   await page.getByRole('button', {name:'Fechar importação'}).click();
   await page.getByRole('button', {name:'Novo funcionário'}).click();
@@ -199,6 +199,11 @@ try {
   await page.getByRole('button', {name:'Importar fichas CSV/XLSX'}).click();
   await page.getByText('Importar ficha de ponto CSV / Excel').waitFor();
   await screenshot('25c-ponto-importacao-direta', 'Acesso direto à importação de fichas CSV/XLSX');
+  await page.getByRole('button',{name:'Modelo de ponto diário XLSX'}).waitFor();
+  await page.getByRole('button',{name:'Modelo de matriz mensal XLSX'}).waitFor();
+  await page.getByRole('tab',{name:'Importação completa'}).click();
+  await page.getByRole('button',{name:'Baixar modelo completo XLSX'}).waitFor();
+  await screenshot('25d-importacao-pacote-completo','Pacote XLSX com funcionários e marcações na mesma operação');
   await page.getByRole('tab', {name:'Ficha individual'}).click();
   await page.getByRole('tab', {name:'Ficha individual'}).waitFor();
   await screenshot('26-ponto-conferido-lote', 'Ficha conferida em lote sem bloqueio antes do holerite');
