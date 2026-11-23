@@ -7,7 +7,7 @@ export interface AuthState {configured:boolean;operator:LocalOperator|null;}
 type Row=Record<string,unknown>;
 const READ_ONLY=new Set([
   'snapshot','time-config','time-schedule','time-sheet','time-matrix','time-audit',
-  'time-import-history','time-bank-balance','time-attachment-list','time-attachment-save',
+  'employee-import-template','package-import-template','import-save-errors','time-import-history','time-bank-balance','time-attachment-list','time-attachment-save',
   'time-export-matrix','time-export-pdf','time-export-batch-pdf','time-export-report',
   'time-print','time-print-batch','export-pdf','print','export-csv','export-backup'
 ]);
