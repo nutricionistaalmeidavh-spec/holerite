@@ -306,7 +306,7 @@ function App() {
         {error&&<div className="error-banner" role="alert"><span>{error}</span><button aria-label="Fechar erro" onClick={()=>setError('')}><Icon name="close" size={16}/></button></div>}
         {toast&&<div className="success-banner" role="status"><Icon name="check" size={17}/>{toast}<button onClick={()=>setToast('')} aria-label="Fechar aviso"><Icon name="close" size={15}/></button></div>}
         {data.companies.length===0&&tab!=='companies'?<div className="card"><Empty title="Comece cadastrando sua empresa" description="O primeiro passo é cadastrar a empresa para controlar as jornadas e depois emitir holerites." action={<Button icon="plus" onClick={()=>openCompany()}>Cadastrar empresa</Button>}/></div>:null}
-        {data.companies.length>0&&tab==='time'&&<TimeControlPage companyId={companyId} competence={competence} employees={employees} initialEmployeeId={selectedEmployeeId} onPayrollUpdated={id=>{void reload();setSelectedEmployeeId(id);setPayrollKind('monthly');navigate('payroll');setToast('Ponto integrado. Confira o holerite antes de finalizar.');}}/>}
+        {data.companies.length>0&&tab==='time'&&<TimeControlPage companyId={companyId} competence={competence} employees={employees} onEmployeesImported={reload} initialEmployeeId={selectedEmployeeId} onPayrollUpdated={id=>{void reload();setSelectedEmployeeId(id);setPayrollKind('monthly');navigate('payroll');setToast('Ponto integrado. Confira o holerite antes de finalizar.');}}/>}
         {data.companies.length>0&&tab==='dashboard'&&<>
           <section className="overview-hero" aria-label="Emissão de documentos e resumo da competência">
             <div className="hero-copy">
