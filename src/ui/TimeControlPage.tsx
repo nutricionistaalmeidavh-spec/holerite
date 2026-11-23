@@ -455,13 +455,13 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
             <div className="table-scroll import-edit-scroll">
               <table className="data-table import-edit-table"><thead><tr><th>Linha</th><th>Estado</th>
                 {importFields.map(field=><th key={field.key}>{field.label}</th>)}
-              </tr></thead><tbody>{preview.rows.map((row,index)=><tr key={row.line+'-'+index}>
+              </tr></thead><tbody>{preview.rows.map((row,index)=><tr key={row.rowKey}>
                 <td>{row.line}</td><td title={row.message}>{row.status==='valid'?'Válido':'Corrigir'}</td>
                 {importFields.map(field=><td key={field.key}><input
                   aria-label={field.label+' linha '+row.line}
-                  value={timeEdits[row.line]?.[field.key]??row.values[field.key]}
+                  value={timeEdits[row.rowKey]?.[field.key]??row.values[field.key]}
                   onChange={e=>{
-                    setTimeEdits(old=>({...old,[row.line]:{...old[row.line],[field.key]:e.target.value}}));setTimeDirty(true);
+                    setTimeEdits(old=>({...old,[row.rowKey]:{...old[row.rowKey],[field.key]:e.target.value}}));setTimeDirty(true);
                   }}/></td>)}
               </tr>)}</tbody></table>
             </div>
