@@ -36,7 +36,7 @@ export async function readSheet(path:string,requestedSheet?:string,limit=30000):
     const encoding=detectCsvEncoding(data);
     const content=iconv.decode(data,encoding).replace(/^\uFEFF/,'');
     const result=Papa.parse<string[]>(content,{skipEmptyLines:'greedy',delimiter:'',quoteChar:'"',escapeChar:'"',dynamicTyping:false});
-    if(result.errors.length)throw new Error('CSV inválido: '+result.errors.slice(0,3).map(e=>'linha '+(e.row+1)+': '+e.message).join('; '));
+    if(result.errors.length)throw new Error('CSV inválido: '+result.errors.slice(0,3).map(e=>'linha '+((e.row??0)+1)+': '+e.message).join('; '));
     const [first,...rest]=result.data;
     heads=first??[];records=rest;
   }else{
