@@ -156,7 +156,11 @@ export class TimeImporter {
         seen.add(key);
         const sheetKey=employee.id+'|'+competence;
         let target=sheets.get(sheetKey);
-        if(!target){target=this.store.getSheet(employee.id,competence);sheets.set(sheetKey,target);}
+        if(!target){
+          target=employee.createdAt?this.store.getSheet(employee.id,competence):
+            {status:'draft',days:[]} as ReturnType<AttendanceStore['getSheet']>;
+          sheets.set(sheetKey,target);
+        }
         if(target.status==='closed')throw new Error('Ficha fechada: reabra antes de importar');
         const previous=target.days.find(d=>d.date===date);
         if(previous&&previous.source!=='suggested'&&!allowReplace)
@@ -181,7 +185,7 @@ export class TimeImporter {
         return {employee:employee?.name||'',date:item.day.date,kind:item.day.kind,start:item.day.start,end:item.day.end};
       })};
   }
-  commit(token:string,mapping:ImportMapping,allowReplace=false,allowPartial=false,edits:TimeImportEdits={}):{imported:number;errors:number} {
+  commit(token:string,mapping:ImportMapping,allowReplace=false,allowPartial=false,edits:TimeImportEdits={}):{imported:number} {
     const {p,accepted,errors}=this.prepare(token,mapping,edits,allowReplace);
     if(errors.length&&!allowPartial)throw new Error('Corrija linhas inválidas: '+errors.slice(0,4).join('; '));
     if(!accepted.length)throw new Error('Nenhuma marcação válida para importar.');
@@ -190,6 +194,6 @@ export class TimeImporter {
     this.store.recordImport(p.companyId,p.filename,p.hash,imported);
     this.store.saveImportMapping(p.companyId,p.headers,mapping as Record<string,string>);
     this.pending.delete(token);
-    return {imported,errors:errors.length};
+    return {imported};
   }
 }
