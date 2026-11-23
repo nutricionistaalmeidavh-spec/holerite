@@ -55,3 +55,25 @@ npm run dist:win
 ```
 
 Cobertura inclui ponto ativo, conferência em lote auditável e idempotente, preservação de importações/manuais, emissão sem fechamento obrigatório, sugestões não conferidas excluídas da apuração, virada de meia-noite, integração mensal idempotente, CSV/XLSX e migrações antigas.
+
+## Importar funcionários e fichas de ponto de planilhas (P0–P2)
+
+O cadastro individual permanece disponível. Para importar lotes, abra **Funcionários → Importar funcionários CSV/XLSX** ou **Controle de ponto → Importar planilha / Importação completa**.
+
+### Modelos oficiais (gerados localmente)
+
+| Ação | Modelo baixado | Abas | Campos |
+| --- | --- | --- | --- |
+| Funcionários → Baixar modelo de funcionários | `Modelo-Funcionarios.xlsx` | Funcionários + Instruções | Nome, CPF, matrícula, cargo, admissão, salário em R$, setor, obra, centro de custo, PIS/NIS, jornada, dependentes e situação |
+| Ponto → Modelo de ponto diário XLSX | `Modelo-Controle-Ponto.xlsx` | Ponto + Instruções | Uma linha por funcionário e por data: entrada, almoço, retorno, saída, tipo de dia e observações |
+| Ponto → Modelo de matriz mensal XLSX | `Modelo-Matriz-Mensal.xlsx` | Matriz mensal + Instruções | Uma linha por funcionário e competência; até 31 dias, com entrada, almoço, retorno, saída, tipo e observações por dia |
+| Ponto → Importação completa → Baixar modelo completo | `Modelo-Funcionarios-e-Ponto.xlsx` | Funcionários + Ponto + Instruções | Cadastra funcionários e importa marcações do mesmo arquivo XLSX |
+
+Os cabeçalhos do modelo são reconhecidos **automaticamente**. Para arquivos CSV/XLSX de terceiros, o operador pode ajustar o mapeamento de colunas antes de importar. CSV aceita vírgula, ponto e vírgula, campos entre aspas, UTF-8 e Windows-1252; o Excel deve preservar CPF/matrícula como texto. Dados de ponto podem ser corrigidos na prévia paginada.
+
+**Segurança do processo:** nunca sobrescreve cadastro de funcionário só por identificar CPF ou matrícula já existente. A importação em lote de funcionários usa transação SQLite; a de ponto também grava marcações, hash do arquivo e mapeamento de modo atômico. Em erro parcial, o operador pode corrigir células diretamente na prévia ou optar explicitamente por **importar somente linhas válidas**, baixando os problemas em CSV. Lançamentos de ponto reais já existentes não são substituídos sem confirmação; fichas fechadas continuam protegidas. A importação completa exige que as duas abas estejam válidas e grava funcionários e ponto em **uma única transação**: falhou uma etapa, nada é salvo.
+
+**Fluxo de apuração:** importar uma marcação não gera um holerite por conta própria; permanece a conferência administrativa em lote e a decisão explícita de inclusão das sugestões de calendário, sem travas de fechamento.
+
+Bibliotecas gratuitas/offline: ExcelJS, Papa Parse e iconv-lite; todo o processamento e armazenamento ficam no PC.
+
