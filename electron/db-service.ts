@@ -103,6 +103,18 @@ bind('time-attachment-remove',(v:any)=>storage.attendance.removeAttachment(v.emp
     function* rows(){for(const p of storage.payrollExport(v))yield [p.competence,p.details.company.legalName,p.details.employee.name,p.details.employee.cpf,p.status,p.details.totals.grossCents/100,p.details.totals.deductionCents/100,p.details.totals.netCents/100];}
     return csv(v.filePath,['Competência','Empresa','Funcionário','CPF','Status','Bruto','Descontos','Líquido'],rows());
   });
+  bind('time-report-totals',v=>{
+    const ids=new Set<string>(v.employeeIds);
+    const totals={employees:0,absences:0,issues:0,workedMinutes:0,overtimeMinutes:0,lateMinutes:0,nightMinutes:0};
+    if(!ids.size)return totals;
+    for(const batch of storage.attendance.matrixBatches(v.companyId,v.competence))for(const s of batch){
+      if(!ids.has(s.employeeId))continue;
+      totals.employees++;totals.absences+=s.summary.absences;totals.issues+=s.issues.length;
+      totals.workedMinutes+=s.summary.workedMinutes;totals.overtimeMinutes+=s.summary.overtimeMinutes;
+      totals.lateMinutes+=s.summary.lateMinutes;totals.nightMinutes+=s.summary.nightMinutes;
+    }
+    return totals;
+  });
   bind('time-export-report',v=>{
     const people=new Map(storage.listEmployees(v.companyId).map(e=>[e.id,e]));
     const ids=v.employeeIds===undefined?null:new Set<string>(v.employeeIds);
