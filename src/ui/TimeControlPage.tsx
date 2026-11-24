@@ -111,12 +111,14 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
   const selected=activeEmployees.find(e=>e.id===employeeId);
   const sheetIssues=useMemo(()=>diagnosePointDays(days,schedule,competence),[days,schedule,competence]);
   const matrixIssues=useMemo(()=>matrix.flatMap(s=>s.issues.map(issue=>({...issue,employeeId:s.employeeId,employeeName:s.employeeName}))),[matrix]);
+  const matrixByEmployee=useMemo(()=>new Map(matrix.map(s=>[s.employeeId,s])),[matrix]);
+  const employeeById=useMemo(()=>new Map(activeEmployees.map(e=>[e.id,e])),[activeEmployees]);
   const matrixIssueKeys=useMemo(()=>new Set(matrixIssues.map(issue=>issue.employeeId+'|'+issue.date)),[matrixIssues]);
   const matrixSummary=useMemo(()=>({total:matrix.length,closed:matrix.filter(s=>s.status==='closed').length,suggested:matrix.reduce((sum,s)=>sum+s.days.filter(d=>d.source==='suggested').length,0)}),[matrix]);
   const reportRows=useMemo(()=>matrix.filter(s=>{
-    const employee=activeEmployees.find(e=>e.id===s.employeeId);
+    const employee=employeeById.get(s.employeeId);
     return [s.employeeName,employee?.sector,employee?.jobSite,employee?.costCenter].some(value=>(value||'').toLowerCase().includes(reportFilter.toLowerCase()));
-  }),[matrix,activeEmployees,reportFilter]);
+  }),[matrix,employeeById,reportFilter]);
   const changedDays=days.filter(day=>JSON.stringify(day)!==JSON.stringify(sheet?.days.find(old=>old.date===day.date)));
   const dirty=changedDays.length>0||Object.keys(matrixDrafts).length>0||!!(config&&savedConfig&&JSON.stringify(config)!==savedConfig)||!!(employeeId&&savedSchedule&&JSON.stringify(schedule)!==savedSchedule);
   useEffect(()=>{onDirtyChange?.(dirty);},[dirty,onDirtyChange]);
@@ -149,9 +151,9 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
     }))),[matrix]);
   const matrixRows=useMemo(()=>allMatrixRows.filter(row=>{
     const matches=row.employeeName.toLowerCase().includes(filter.toLowerCase())||row.day.date.includes(filter);
-    const closed=matrix.find(s=>s.employeeId===row.employeeId)?.status==='closed';
+    const closed=matrixByEmployee.get(row.employeeId)?.status==='closed';
     return matches&&(matrixFilter==='all'||(matrixFilter==='closed'&&closed)||(matrixFilter==='open'&&!closed)||(matrixFilter==='issues'&&matrixIssueKeys.has(row.key))||(matrixFilter==='changed'&&!!matrixDrafts[row.key]));
-  }),[allMatrixRows,filter,matrixFilter,matrix,matrixIssueKeys,matrixDrafts]);
+  }),[allMatrixRows,filter,matrixFilter,matrixByEmployee,matrixIssueKeys,matrixDrafts]);
   const applyMatrixFilter=(next:MatrixFilter)=>{setMatrixFilter(next);setPage(0);};
   useEffect(()=>{setPage(p=>Math.min(p,Math.max(0,Math.ceil(matrixRows.length/100)-1)));},[matrixRows.length]);
   const visibleMatrixRows=matrixRows.slice(page*100,(page+1)*100);
@@ -170,7 +172,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
     const next={...matrixDrafts};
     cells.forEach((line,rowIndex)=>{
       const row=visibleMatrixRows[position+rowIndex];
-      if(!row||matrix.find(s=>s.employeeId===row.employeeId)?.status==='closed')return;
+      if(!row||matrixByEmployee.get(row.employeeId)?.status==='closed')return;
       const current=next[row.key]||row.day;
       const state={...current};
       line.forEach((value,columnIndex)=>{
@@ -396,7 +398,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
           <th>Funcionário</th><th>Data</th><th>Tipo</th><th>Entrada</th><th>Saída almoço</th><th>Retorno</th><th>Saída</th><th>Horas reais</th><th>Observações</th><th>Origem</th><th>Conferência</th>
         </tr></thead><tbody>{visibleMatrixRows.map((row,index)=>{
           const day=matrixDrafts[row.key]||row.day;
-          const locked=matrix.find(s=>s.employeeId===row.employeeId)?.status==='closed';
+          const locked=matrixByEmployee.get(row.employeeId)?.status==='closed';
           const rowHasIssues=matrixIssueKeys.has(row.key);
           const visualStatus=pointRowStatus(day.source,rowHasIssues);
           return <tr key={row.key} className={[day.source==='suggested'?'time-suggested':'',rowHasIssues?'time-row-issue':''].filter(Boolean).join(' ')}>
@@ -428,12 +430,12 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
         <div className="time-status"><span>{reportRows.length} funcionário(s) · {reportRows.reduce((v,s)=>v+s.summary.absences,0)} falta(s) · {matrixIssues.length} aviso(s)</span>
           <small>Trabalhadas {duration(reportRows.reduce((v,s)=>v+s.summary.workedMinutes,0))} | Extras {duration(reportRows.reduce((v,s)=>v+s.summary.overtimeMinutes,0))} | Atrasos {duration(reportRows.reduce((v,s)=>v+s.summary.lateMinutes,0))}</small></div>
         <div className="table-scroll time-table"><table className="data-table"><thead><tr><th>Funcionário</th><th>Setor</th><th>Obra</th><th>Centro de custo</th><th>Trabalhadas</th><th>Extras</th><th>Noturnas</th><th>Atrasos</th><th>Faltas</th><th>Status</th></tr></thead>
-          <tbody>{reportRows.map(s=>{const employee=activeEmployees.find(e=>e.id===s.employeeId);return <tr key={s.employeeId}><td><button type="button" className="small-action" onClick={()=>openIndividual(s.employeeId)}>{s.employeeName}</button></td><td>{employee?.sector||'—'}</td><td>{employee?.jobSite||'—'}</td><td>{employee?.costCenter||'—'}</td><td>{duration(s.summary.workedMinutes)}</td><td>{duration(s.summary.overtimeMinutes)}</td><td>{duration(s.summary.nightMinutes)}</td><td>{duration(s.summary.lateMinutes)}</td><td>{s.summary.absences}</td><td>{s.status==='closed'?'Fechado':'Aberto'}</td></tr>;})}</tbody>
+          <tbody>{reportRows.map(s=>{const employee=employeeById.get(s.employeeId);return <tr key={s.employeeId}><td><button type="button" className="small-action" onClick={()=>openIndividual(s.employeeId)}>{s.employeeName}</button></td><td>{employee?.sector||'—'}</td><td>{employee?.jobSite||'—'}</td><td>{employee?.costCenter||'—'}</td><td>{duration(s.summary.workedMinutes)}</td><td>{duration(s.summary.overtimeMinutes)}</td><td>{duration(s.summary.nightMinutes)}</td><td>{duration(s.summary.lateMinutes)}</td><td>{s.summary.absences}</td><td>{s.status==='closed'?'Fechado':'Aberto'}</td></tr>;})}</tbody>
         </table></div>
       </section>}
       {view==='import'&&<section className="card time-sheet">
         <h2>Importar ficha de ponto CSV / Excel</h2>
-        <p>Identifique os funcionários por CPF, matrícula ou nome. Revise o mapeamento antes da gravação. Até 30.000 linhas e 30 MB por arquivo. O mapeamento é reutilizado automaticamente para planilhas com as mesmas colunas.</p>
+        <p>Identifique os funcionários por CPF, matrícula ou nome. Revise o mapeamento antes da gravação. Sem limite fixo de linhas; arquivos de até 30 MB por segurança de memória. O mapeamento é reutilizado automaticamente para planilhas com as mesmas colunas.</p>
         <button className="btn btn-secondary" disabled={busy} onClick={()=>void run(async()=>{
           await window.holerites.exportTimeMatrix({companyId,competence,format:'template'});
         })}>Baixar modelo XLSX</button>
