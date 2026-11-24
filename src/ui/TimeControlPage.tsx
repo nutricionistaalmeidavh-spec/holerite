@@ -33,7 +33,7 @@ type GenerationRequest={scope:'individual'|'team';companyId:string;competence:st
 
 export function TimeControlPage({companyId,competence,employees,onPayrollUpdated,initialEmployeeId='',initialView='individual',initialMatrixFilter='all',readOnly=false,onDirtyChange,onBusyChange,onOpenPayroll}:{
   companyId:string;competence:string;employees:Employee[];
-  initialEmployeeId?:string;initialView?:TimeView;initialMatrixFilter?:MatrixFilter;readOnly?:boolean;onDirtyChange?:(dirty:boolean)=>void;onBusyChange?:(busy:boolean)=>void;onOpenPayroll?:()=>void;onPayrollUpdated:(employeeId:string)=>void
+  initialEmployeeId?:string;initialView?:TimeView;initialMatrixFilter?:MatrixFilter;readOnly?:boolean;onDirtyChange?:(dirty:boolean)=>void;onBusyChange?:(busy:boolean)=>void;onOpenPayroll?:(employeeId:string)=>void;onPayrollUpdated:(employeeId:string)=>void
 }){
   const [config,setConfig]=useState<TimeConfig|null>(null);
   const [employeeId,setEmployeeId]=useState('');
@@ -126,7 +126,12 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
   const switchView=(next:View)=>{if(next===view)return;if(!mayLeave())return;setMatrixDrafts({});if(sheet)setDays(sheet.days);if(savedSchedule)setSchedule(JSON.parse(savedSchedule));if(savedConfig)setConfig(JSON.parse(savedConfig));setView(next);};
   const openIndividual=(id:string)=>{if(!mayLeave())return;setMatrixDrafts({});if(sheet)setDays(sheet.days);if(savedSchedule)setSchedule(JSON.parse(savedSchedule));if(savedConfig)setConfig(JSON.parse(savedConfig));if(id!==employeeId){sheetRequest.current++;setSheet(null);setDays([]);setEmployeeId(id);}setView('individual');};
   const saveDays=async()=>{
-    if(!sheet||!changedDays.length||readOnly)return;
+    if(readOnly)return;
+    if(employeeId&&savedSchedule&&JSON.stringify(schedule)!==savedSchedule){
+      if(!window.confirm('A jornada deste funcionário também foi alterada. Salvar a jornada antes de continuar?'))throw new Error('Operação cancelada. As alterações foram mantidas.');
+      const saved=await window.holerites.setTimeSchedule({employeeId,schedule});setSchedule(saved);setSavedSchedule(JSON.stringify(saved));
+    }
+    if(!sheet||!changedDays.length)return;
     await window.holerites.saveTimeMatrix({changes:changedDays.map(day=>({
       employeeId,competence,day,expectedRevision:sheet.revision
     }))});
@@ -232,7 +237,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
         <h2>Controle de ponto <small>início da folha mensal</small></h2>
         <p>Preencha ou importe os horários, revise o mês inteiro e imprima as fichas para assinatura física. A conferência orienta e não bloqueia a emissão do holerite.</p>
         <ol className="time-steps" aria-label="Fluxo mensal">
-          <li><button type="button" className="flow-link" onClick={()=>switchView('settings')}>1. Jornada</button></li><li><button type="button" className="flow-link" onClick={()=>switchView('individual')}>2. Preenchimento</button></li><li><button type="button" className="flow-link" onClick={()=>switchView('matrix')}>3. Conferência em lote</button></li><li><button type="button" className="flow-link" onClick={()=>switchView('matrix')}>4. Impressão e assinatura</button></li><li><button type="button" className="flow-link" disabled={!onOpenPayroll||busy} onClick={()=>onOpenPayroll?.()}>5. Holerite</button></li>
+          <li><button type="button" className="flow-link" onClick={()=>switchView('settings')}>1. Jornada</button></li><li><button type="button" className="flow-link" onClick={()=>switchView('individual')}>2. Preenchimento</button></li><li><button type="button" className="flow-link" onClick={()=>switchView('matrix')}>3. Conferência em lote</button></li><li><button type="button" className="flow-link" onClick={()=>{if(view!=='matrix'&&!mayLeave())return;if(view!=='matrix'){setMatrixDrafts({});if(sheet)setDays(sheet.days);if(savedSchedule)setSchedule(JSON.parse(savedSchedule));if(savedConfig)setConfig(JSON.parse(savedConfig));setView('matrix');}setTimeout(()=>document.getElementById('team-print-action')?.focus(),0);}}>4. Impressão e assinatura</button></li><li><button type="button" className="flow-link" disabled={!onOpenPayroll||busy} onClick={()=>onOpenPayroll?.(employeeId)}>5. Holerite</button></li>
         </ol>
       </div>
     </section>
@@ -371,7 +376,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
             })}>Conferir equipe em lote</button>
 
           <button className="btn btn-secondary" disabled={busy||!matrix.length} onClick={()=>void run(async()=>{await saveMatrix();await window.holerites.exportTimeBatchPDF({companyId,competence,employeeIds:selectedForPrint});})}>PDF fichas em lote</button>
-          <button className="btn btn-secondary" disabled={busy||!matrix.length} onClick={()=>void run(async()=>{await saveMatrix();await window.holerites.printTimeBatch({companyId,competence,employeeIds:selectedForPrint});})}>Imprimir equipe</button>
+          <button id="team-print-action" className="btn btn-secondary" disabled={busy||!matrix.length} onClick={()=>void run(async()=>{await saveMatrix();await window.holerites.printTimeBatch({companyId,competence,employeeIds:selectedForPrint});})}>Imprimir equipe</button>
           <button className="btn btn-secondary" disabled={busy} onClick={()=>void run(async()=>{await saveMatrix();await window.holerites.exportTimeMatrix({companyId,competence,format:'xlsx'});})}>Exportar Excel</button>
           <button className="btn btn-secondary" disabled={busy} onClick={()=>void run(async()=>{await saveMatrix();await window.holerites.exportTimeMatrix({companyId,competence,format:'csv'});})}>Exportar CSV</button>
         </div>
