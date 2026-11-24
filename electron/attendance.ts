@@ -138,17 +138,22 @@ export class AttendanceStore {
       days,issues:diagnosePointDays(days,issueSchedule,competence),summary:snapshot?.summary??assessMonth(days,this.getSchedule(employeeId),Number(employee.salary_cents)),
       closedAt:row?.closed_at?String(row.closed_at):null};
   }
-  matrix(companyId:string,competence:string):Array<TimeSheet&{employeeName:string}> {
+  matrix(companyId:string,competence:string,page?:{offset:number;size:number}):Array<TimeSheet&{employeeName:string}> {
     this.requireEnabled(companyId);
     if(!validMonth(competence))throw new Error('Competência inválida.');
     const config=this.getConfig(companyId);
+    const size=page?Math.max(1,Math.min(250,Math.trunc(page.size))):-1;
+    const offset=page?Math.max(0,Math.trunc(page.offset)):0;
     const employees=this.db.prepare(`SELECT e.id,e.name,e.salary_cents,es.schedule_json,s.status,s.revision,s.closed_at,s.closed_snapshot_json
       FROM employees e LEFT JOIN time_employee_schedules es ON es.employee_id=e.id
       LEFT JOIN time_sheets s ON s.employee_id=e.id AND s.competence=?
-      WHERE e.company_id=? AND e.active=1 ORDER BY e.name,e.id`).all(competence,companyId) as Row[];
+      WHERE e.company_id=? AND e.active=1 ORDER BY e.name,e.id LIMIT ? OFFSET ?`).all(competence,companyId,size,offset) as Row[];
     const groups=new Map<string,PointDay[]>();
-    for(const row of this.db.prepare(`SELECT d.* FROM employees e JOIN time_days d ON d.employee_id=e.id AND d.competence=?
-      WHERE e.company_id=? AND e.active=1 ORDER BY e.id,d.date`).iterate(competence,companyId)){
+    if(!employees.length)return [];
+    const daysQuery=page?`SELECT d.* FROM (SELECT id FROM employees WHERE company_id=? AND active=1 ORDER BY name,id LIMIT ? OFFSET ?) e JOIN time_days d ON d.employee_id=e.id AND d.competence=? ORDER BY d.employee_id,d.date`:`SELECT d.* FROM employees e JOIN time_days d ON d.employee_id=e.id AND d.competence=? WHERE e.company_id=? AND e.active=1 ORDER BY e.id,d.date`;
+    const daysStatement=this.db.prepare(daysQuery);
+    const records=page?daysStatement.iterate(companyId,size,offset,competence):daysStatement.iterate(competence,companyId);
+    for(const row of records){
       const id=String(row.employee_id);const list=groups.get(id)??[];list.push(this.dayFrom(row));groups.set(id,list);
     }
     return employees.map(row=>{
@@ -157,6 +162,13 @@ export class AttendanceStore {
       const schedule=snapshot?.schedule??(row.schedule_json?json<WorkSchedule>(row.schedule_json):config.schedule);
       return {employeeId,companyId,competence,employeeName:String(row.name),status:row.status==='closed'?'closed':'draft',revision:Number(row.revision??0),days,issues:diagnosePointDays(days,schedule,competence),summary:snapshot?.summary??assessMonth(days,schedule,Number(row.salary_cents)),closedAt:row.closed_at?String(row.closed_at):null};
     });
+  }
+  *matrixBatches(companyId:string,competence:string,size=100):IterableIterator<Array<TimeSheet&{employeeName:string}>>{
+    const batchSize=Number.isSafeInteger(size)?Math.max(1,Math.min(250,size)):100;
+    for(let offset=0;;offset+=batchSize){
+      const batch=this.matrix(companyId,competence,{offset,size:batchSize});if(!batch.length)return;
+      yield batch;if(batch.length<batchSize)return;
+    }
   }
   overview(companyId:string,competence:string):{total:number;closed:number}{
     this.requireEnabled(companyId);if(!validMonth(competence))throw new Error('Competência inválida.');
