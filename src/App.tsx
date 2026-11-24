@@ -350,9 +350,9 @@ function App() {
       <div className="sidebar-category">GESTÃO</div>
       <nav aria-label="Menu principal">{([
         ['dashboard','Visão geral','dashboard'],
-        ['time','Controle de ponto','time'],
-        ['employees','Funcionários','employees'],
         ['companies','Empresas','company'],
+        ['employees','Funcionários','employees'],
+        ['time','Controle de ponto','time'],
         ['payroll','Holerites e folha','payroll'],
         ['history','Histórico','history']
       ] as [Tab,string,IconName][]).map(([key,label,icon])=><button type="button" className={'nav-link '+(tab===key?'active':'')} aria-current={tab===key?'page':undefined} onClick={()=>navigate(key)} key={key}><Icon name={icon} size={19}/>{label}</button>)}</nav>

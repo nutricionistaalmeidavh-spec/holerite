@@ -1,6 +1,6 @@
 {
   "name": "artisys-holerites",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "private": true,
   "description": "ArtiSys Ponto e Folha — controle de ponto e holerites offline",
   "main": "dist-electron/main.js",

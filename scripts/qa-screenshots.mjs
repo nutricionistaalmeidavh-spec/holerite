@@ -84,7 +84,12 @@ try {
   page.on('dialog', dialog => rejectDiscard&&dialog.message().includes('alterações não salvas')?dialog.dismiss():dialog.accept());
   await page.setViewportSize({width:1440,height:960});
   await page.getByText('Comece cadastrando sua empresa').waitFor();
-  assert.equal(await page.getByRole('heading',{name:'Visão geral',exact:true}).count(),1,'Visão geral deve iniciar o sistema');
+  const menu = page.getByRole('navigation', {name:'Menu principal'});
+  assert.deepEqual(await menu.getByRole('button').allTextContents(), [
+    'Visão geral', 'Empresas', 'Funcionários', 'Controle de ponto', 'Holerites e folha', 'Histórico'
+  ]);
+  assert.equal(await page.locator('h1').innerText(), 'Visão geral');
+  assert.equal(await menu.getByRole('button', {name:'Visão geral', exact:true}).getAttribute('aria-current'), 'page');
 
   await screenshot('01-primeiro-acesso', 'Visão geral: primeiro acesso sem empresa');
   await go('Empresas');
@@ -203,7 +208,7 @@ try {
 
   // Controle de ponto é principal; o diálogo permite incluir imediatamente sem fechamento obrigatório.
   await go('Controle de ponto');
-  await screenshot('25-ponto-principal', 'Controle de ponto é a tela principal, sem ativação opcional');
+  await screenshot('25-ponto-principal', 'Controle de ponto é o módulo principal, sem ativação opcional');
   await page.getByRole('tab', {name:'Ficha individual'}).waitFor();
   await screenshot('26-ponto-conferido-lote', 'Ficha conferida em lote sem bloqueio antes do holerite');
   await page.getByRole('tab', {name:'Configurações'}).click();
