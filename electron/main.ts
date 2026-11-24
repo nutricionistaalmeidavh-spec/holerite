@@ -132,6 +132,8 @@ function bindIPC() {
   bind('time-sheet',(v:any)=>storage.attendance.getSheet(v.employeeId,v.competence));
   bind('time-matrix',(v:any)=>storage.attendance.matrix(v.companyId,v.competence));
   bind('time-audit',(v:any)=>storage.attendance.auditHistory(v.employeeId,v.competence));
+  bind('time-audit-page',(v:any)=>storage.attendance.auditPage(v.employeeId,v.competence,v.page,v.pageSize));
+  bind('time-import-page',(v:any)=>storage.attendance.importPage(v.companyId,v.page,v.pageSize));
   bind('time-autofill',(v:any)=>storage.attendance.autofill(v.employeeId,v.competence));
   bind('time-bulk-review',(v:any)=>storage.attendance.reviewSuggestions(v.employeeIds,v.competence));
   bind('time-save-matrix',(v:any)=>storage.attendance.saveMatrix(v.changes,v.overwriteImported===true));
