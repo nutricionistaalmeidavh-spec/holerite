@@ -163,7 +163,7 @@ export interface HoleriteAPI {
   exportPDF(id: string): Promise<boolean>;
   print(id: string): Promise<void>;
   exportBackup(): Promise<boolean>;
-  exportCSV(): Promise<boolean>;
+  exportCSV(input:import('./workspace-scope').PayrollScope): Promise<boolean>;
   getTimeConfig(companyId:string):Promise<TimeConfig>;
   setTimeConfig(input:{companyId:string;config:TimeConfig}):Promise<TimeConfig>;
   getTimeSchedule(employeeId:string):Promise<WorkSchedule>;
@@ -189,7 +189,7 @@ export interface HoleriteAPI {
   addTimeAttachment(input:{employeeId:string;date:string}):Promise<PointAttachment|null>;
   saveTimeAttachment(input:{employeeId:string;id:string}):Promise<boolean>;
   removeTimeAttachment(input:{employeeId:string;id:string}):Promise<void>;
-  exportTimeReport(input:{companyId:string;competence:string}):Promise<boolean>;
+  exportTimeReport(input:{companyId:string;competence:string;employeeIds?:string[]}):Promise<boolean>;
   exportTimeBatchPDF(input:{companyId:string;competence:string;employeeIds:string[]}):Promise<boolean>;
   printTimeBatch(input:{companyId:string;competence:string;employeeIds:string[]}):Promise<boolean>;
 
