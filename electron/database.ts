@@ -1,3 +1,4 @@
+import type {PayrollScope} from '../src/shared/workspace-scope';
 import { DatabaseSync, backup } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import {AttendanceStore} from './attendance';
@@ -55,6 +56,15 @@ export class HoleriteDatabase {
     `);
     this.migrateEmployeeProfiles();
     this.migrateOldPayrolls();
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_employees_company_name ON employees(company_id,name,id);
+      CREATE INDEX IF NOT EXISTS idx_employees_company_active_name ON employees(company_id,active,name,id);
+      CREATE INDEX IF NOT EXISTS idx_employees_company_cpf ON employees(company_id,cpf);
+      CREATE INDEX IF NOT EXISTS idx_employees_company_registration ON employees(company_id,registration);
+      CREATE INDEX IF NOT EXISTS idx_payroll_company_history ON payrolls(company_id,competence DESC,created_at DESC,id DESC);
+      CREATE INDEX IF NOT EXISTS idx_payroll_company_status_history ON payrolls(company_id,status,competence DESC,created_at DESC,id DESC);
+      CREATE INDEX IF NOT EXISTS idx_payroll_company_kind_history ON payrolls(company_id,kind,competence DESC,created_at DESC,id DESC);
+      CREATE INDEX IF NOT EXISTS idx_payroll_employee_kind_month ON payrolls(employee_id,kind,competence);`);
+    this.db.function('contains_folded',(value,query)=>String(value??'').toLowerCase().includes(String(query??'').toLowerCase())?1:0);
     this.attendance=new AttendanceStore(this.db);
     this.access=new LocalAccess(this.db);
   }
@@ -125,6 +135,40 @@ export class HoleriteDatabase {
   private payrollFrom(row: Row): PayrollRecord {
     return {id:String(row.id),companyId:String(row.company_id),employeeId:String(row.employee_id),competence:String(row.competence),kind:String(row.kind??'monthly') as PayrollKind,status:String(row.status) as PayrollStatus,paidAt:row.paid_at ? String(row.paid_at):null,details:parseJSON<PayrollDetails>(row.details_json),createdAt:String(row.created_at),updatedAt:String(row.updated_at)};
   }
+  listCompanies():Company[]{return (this.db.prepare('SELECT * FROM companies ORDER BY legal_name,id').all() as Row[]).map(r=>this.companyFrom(r));}
+  listEmployees(companyId:string):Employee[]{
+    return (this.db.prepare('SELECT * FROM employees WHERE company_id=? ORDER BY name,id').all(companyId) as Row[]).map(r=>this.employeeFrom(r));
+  }
+  workspace(companyId:string,competence:string):StateSnapshot{
+    const companies=this.listCompanies();
+    const selected=companies.find(c=>c.id===companyId)?.id??companies[0]?.id;
+    if(!selected)return {companies,employees:[],payrolls:[]};
+    if(!/^20\d{2}-(0[1-9]|1[0-2])$/.test(competence))throw new Error('Competência inválida.');
+    const rows=this.db.prepare("SELECT * FROM payrolls WHERE company_id=? AND (competence=? OR (kind='thirteenth-first' AND competence>=? AND competence<=?)) ORDER BY competence DESC,created_at DESC,id DESC").all(selected,competence,competence.slice(0,4)+'-01',competence.slice(0,4)+'-12') as Row[];
+    const recent=this.db.prepare('SELECT * FROM payrolls WHERE company_id=? ORDER BY competence DESC,created_at DESC,id DESC LIMIT 6').all(selected) as Row[];
+    const combined=new Map([...rows,...recent].map(row=>[String(row.id),row]));
+    return {companies,employees:this.listEmployees(selected),payrolls:[...combined.values()].map(r=>this.payrollFrom(r)).sort((a,b)=>b.competence.localeCompare(a.competence)||b.createdAt.localeCompare(a.createdAt)||b.id.localeCompare(a.id))};
+  }
+  private payrollWhere(scope:PayrollScope){
+    const clauses=['company_id=?'],params:string[]=[required(scope.companyId,'Empresa',50)];
+    for(const [key,column] of [['competence','competence'],['kind','kind'],['status','status']] as const){
+      const value=scope[key];if(value&&value!=='all'){clauses.push(column+'=?');params.push(value);}
+    }
+    const search=scope.search?.trim();if(search){clauses.push("contains_folded(COALESCE(json_extract(details_json,'$.employee.name'),'') || ' ' || competence,?)=1");params.push(search);}
+    return {where:clauses.join(' AND '),params};
+  }
+  payrollPage(scope:PayrollScope&{page:number;pageSize:number}):{rows:PayrollRecord[];total:number}{
+    const {where,params}=this.payrollWhere(scope);
+    const size=Number.isSafeInteger(scope.pageSize)?Math.max(1,Math.min(200,scope.pageSize)):100;
+    const page=Number.isSafeInteger(scope.page)?Math.max(0,scope.page):0;
+    const total=Number((this.db.prepare('SELECT COUNT(*) AS n FROM payrolls WHERE '+where).get(...params) as Row).n);
+    const rows=this.db.prepare('SELECT * FROM payrolls WHERE '+where+' ORDER BY competence DESC,created_at DESC,id DESC LIMIT ? OFFSET ?').all(...params,size,Math.min(page,Math.ceil(total/size))*size) as Row[];
+    return {rows:rows.map(r=>this.payrollFrom(r)),total};
+  }
+  *payrollExport(scope:PayrollScope):IterableIterator<PayrollRecord>{
+    const {where,params}=this.payrollWhere(scope);
+    for(const row of this.db.prepare('SELECT * FROM payrolls WHERE '+where+' ORDER BY competence DESC,created_at DESC,id DESC').iterate(...params))yield this.payrollFrom(row as Row);
+  }
   snapshot(): StateSnapshot {
     return {
       companies: (this.db.prepare('SELECT * FROM companies ORDER BY legal_name').all() as Row[]).map(r=>this.companyFrom(r)),
@@ -191,7 +235,7 @@ export class HoleriteDatabase {
     const bankAccount=optional(input.bankAccount??previous?.bankAccount??'','Conta',50);
     const pixKey=optional(input.pixKey??previous?.pixKey??'','Chave Pix',120);
     const recurringEntries=input.recurringEntries??previous?.recurringEntries??[];
-    if(!Array.isArray(recurringEntries)||recurringEntries.length>100) throw new Error('Rubricas recorrentes inválidas.');
+    if(!Array.isArray(recurringEntries)) throw new Error('Rubricas recorrentes inválidas.');
     calculatePayroll({salaryCents,dependents,competence:'2026-11',taxMode:'manual',entries:recurringEntries});
     if(cpf && this.db.prepare('SELECT id FROM employees WHERE company_id=? AND cpf=? AND id<>?').get(companyId,cpf,id))
       throw new Error('CPF já cadastrado nesta empresa.');
@@ -226,11 +270,12 @@ export class HoleriteDatabase {
     if(!['monthly','vacation','thirteenth-first','thirteenth-second','termination'].includes(kind))throw new Error('Tipo de folha inválido.');
     if(original && original.kind!==kind)throw new Error('Não é possível alterar o tipo de uma folha existente.');
     // Point-first is a guided flow, not a blocker: only reviewed/imported/manual marks affect payroll.
-    const calculatedEntries=kind==='monthly'&&!original
+    const sheet=kind==='monthly'&&!original?this.attendance.getSheet(employee.id,input.competence):null;
+    const calculatedEntries=kind==='monthly'&&!original&&sheet
       ?[
         ...input.entries.filter(entry=>!entry.id.startsWith('ponto-'+input.competence+'-')),
-        ...payrollEntriesFromPoint(input.competence,this.attendance.getSheet(employee.id,input.competence).summary,
-          this.attendance.getSheet(employee.id,input.competence).status==='closed'
+        ...payrollEntriesFromPoint(input.competence,sheet.summary,
+          sheet.status==='closed'
             ?this.attendance.getClosedSchedule(employee.id,input.competence)
             :this.attendance.getSchedule(employee.id))
       ]
@@ -241,7 +286,7 @@ export class HoleriteDatabase {
     const already=this.db.prepare('SELECT id FROM payrolls WHERE employee_id=? AND competence=? AND kind=?').get(employee.id,input.competence,kind) as Row | undefined;
     if (already && String(already.id)!==id) throw new Error('Já existe um holerite para este funcionário nesta competência.');
     if(kind==='thirteenth-first'||kind==='thirteenth-second'){
-      const other=this.db.prepare("SELECT id FROM payrolls WHERE employee_id=? AND kind=? AND substr(competence,1,4)=? AND id<>?").get(employee.id,kind,input.competence.slice(0,4),id) as Row|undefined;
+      const other=this.db.prepare("SELECT id FROM payrolls WHERE employee_id=? AND kind=? AND competence>=? AND competence<=? AND id<>?").get(employee.id,kind,input.competence.slice(0,4)+'-01',input.competence.slice(0,4)+'-12',id) as Row|undefined;
       if(other)throw new Error('Já existe esta parcela do 13º para o funcionário no mesmo ano.');
     }
     const updatedAt=now();
@@ -260,7 +305,7 @@ export class HoleriteDatabase {
     if(input.taxMode!=='manual'&&input.taxMode!=='automatic') throw new Error('Modo tributário inválido.');
     if(input.taxMode==='automatic'&&!competence.startsWith('2026-'))
       throw new Error('Cálculo automático disponível apenas para competências de 2026.');
-    const rows=this.db.prepare('SELECT * FROM employees WHERE company_id=? AND active=1 ORDER BY name').all(companyId) as Row[];
+    const rows=this.db.prepare('SELECT * FROM employees WHERE company_id=? AND active=1 ORDER BY name,id').all(companyId) as Row[];
     let created=0,skipped=0;
     this.db.exec('BEGIN IMMEDIATE;');
     try {
