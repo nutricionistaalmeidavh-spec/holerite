@@ -224,7 +224,7 @@ function App() {
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
   const [toast,setToast]=useState('');
-  const [tab,setTab]=useState<Tab>('time');
+  const [tab,setTab]=useState<Tab>('dashboard');
   const [modal,setModal]=useState<Modal>(null);
   const [editingCompany,setEditingCompany]=useState<Company|undefined>();
   const [editingEmployee,setEditingEmployee]=useState<Employee|undefined>();
@@ -284,12 +284,12 @@ function App() {
       <div className="brand"><div className="brandmark">A</div><div><strong>ArtiSys</strong><span>PONTO E FOLHA</span></div></div>
       <div className="sidebar-category">GESTÃO</div>
       <nav aria-label="Menu principal">{([
-        ['time','Controle de ponto','time'],
-        ['employees','Funcionários','employees'],
+        ['dashboard','Visão geral','dashboard'],
         ['companies','Empresas','company'],
+        ['employees','Funcionários','employees'],
+        ['time','Controle de ponto','time'],
         ['payroll','Holerites e folha','payroll'],
-        ['history','Histórico','history'],
-        ['dashboard','Visão geral','dashboard']
+        ['history','Histórico','history']
       ] as [Tab,string,IconName][]).map(([key,label,icon])=><button type="button" className={'nav-link '+(tab===key?'active':'')} aria-current={tab===key?'page':undefined} onClick={()=>navigate(key)} key={key}><Icon name={icon} size={19}/>{label}</button>)}</nav>
       <button className="btn btn-secondary" type="button" onClick={()=>setAuthOpen(true)}>
         {auth.configured?'Perfis locais · '+(auth.operator?.name||''):'Ativar perfis locais'}
