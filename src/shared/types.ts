@@ -172,6 +172,7 @@ export interface HoleriteAPI {
   getTimeSchedule(employeeId:string):Promise<WorkSchedule>;
   setTimeSchedule(input:{employeeId:string;schedule:WorkSchedule}):Promise<WorkSchedule>;
   getTimeSheet(input:{employeeId:string;competence:string}):Promise<TimeSheet>;
+  getTimeReportTotals(input:{companyId:string;competence:string;employeeIds:string[]}):Promise<{employees:number;absences:number;issues:number;workedMinutes:number;overtimeMinutes:number;lateMinutes:number;nightMinutes:number}>;
   getTimeMatrixPage(input:import('../../electron/attendance').MatrixPageInput):Promise<import('../../electron/attendance').MatrixPageResult>;
   generateTimeTeam(input:{companyId:string;competence:string;include:boolean}):Promise<{reviewed:number;employees:number}>;
   reviewTimeTeam(input:{companyId:string;competence:string}):Promise<{reviewed:number;employees:number}>;
