@@ -174,6 +174,8 @@ export interface HoleriteAPI {
   getTimeSheet(input:{employeeId:string;competence:string}):Promise<TimeSheet>;
   getTimeMatrix(input:{companyId:string;competence:string}):Promise<Array<TimeSheet&{employeeName:string}>>;
   getTimeAudit(input:{employeeId:string;competence:string}):Promise<Array<{date:string|null;action:string;reason:string;created_at:string;actor_name?:string}>>;
+  getTimeAuditPage(input:{employeeId:string;competence:string;page:number;pageSize?:number}):Promise<{rows:Array<{date:string|null;action:string;reason:string;created_at:string;actor_name?:string}>;total:number}>;
+  getTimeImportPage(input:{companyId:string;page:number;pageSize?:number}):Promise<{rows:Array<{filename:string;processed:number;created_at:string}>;total:number}>;
   autofillTimeSheet(input:{employeeId:string;competence:string}):Promise<TimeSheet>;
   reviewTimeSuggestions(input:{employeeIds:string[];competence:string}):Promise<{reviewed:number;employees:number}>;
   saveTimeMatrix(input:{changes:MatrixChange[];overwriteImported?:boolean}):Promise<number>;
