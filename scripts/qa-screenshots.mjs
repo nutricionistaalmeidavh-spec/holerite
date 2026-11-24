@@ -80,9 +80,11 @@ try {
   page.on('console', message => {
     if (message.type() === 'error') issues.push('Console: ' + message.text());
   });
-  page.on('dialog', dialog => dialog.accept());
+  let rejectDiscard=false;
+  page.on('dialog', dialog => rejectDiscard&&dialog.message().includes('alterações não salvas')?dialog.dismiss():dialog.accept());
   await page.setViewportSize({width:1440,height:960});
   await page.getByText('Comece cadastrando sua empresa').waitFor();
+  assert.equal(await page.getByRole('heading',{name:'Visão geral',exact:true}).count(),1,'Visão geral deve iniciar o sistema');
 
   await screenshot('01-primeiro-acesso', 'Visão geral: primeiro acesso sem empresa');
   await go('Empresas');
@@ -144,6 +146,15 @@ try {
 
   await go('Visão geral');
   await screenshot('10-visao-geral', 'Dashboard após cadastros');
+  await page.getByRole('button',{name:/Colaboradores ativos/}).click();
+  assert.equal(await page.getByLabel('Somente ativos').isChecked(),true);
+  await go('Visão geral');
+  await page.getByRole('button',{name:/Holerites gerados/}).click();
+  assert.match(await page.getByLabel('Competência do histórico').inputValue(),/^20\d{2}-\d{2}$/);
+  await go('Visão geral');
+  await page.getByRole('button',{name:/Ponto aguardando fechamento/}).click();
+  await page.getByLabel('Situação da matriz').waitFor();
+  assert.equal(await page.getByLabel('Situação da matriz').inputValue(),'open');
   await go('Holerites e folha');
   await page.locator('input[aria-label="Competência"]').fill('2026-11');
   await screenshot('11-folha-sem-selecao', 'Folha: seleção de documento e colaborador');
@@ -203,6 +214,17 @@ try {
   await generationDialog.getByRole('button',{name:'Cancelar'}).click();
   await generationDialog.waitFor({state:'hidden'});
   await screenshot('28-ponto-matriz', 'Matriz mensal de ponto da equipe');
+  const note=page.locator('.time-matrix-workspace input[aria-label^="Observações "]').first();
+  await note.fill('Regressão: alteração preservada');
+  rejectDiscard=true;
+  await page.getByRole('tab',{name:'Configurações'}).click();
+  assert.equal(await note.inputValue(),'Regressão: alteração preservada');
+  rejectDiscard=false;
+  await page.getByLabel('Buscar na matriz').fill('ZZZ sem correspondência');
+  await page.getByRole('button',{name:'Salvar 1 dia(s)'}).click();
+  await page.getByText('1 dia(s) atualizados na matriz.').waitFor();
+  await page.getByLabel('Buscar na matriz').fill('');
+  assert.equal(await note.inputValue(),'Regressão: alteração preservada');
   await page.getByRole('tab', {name:'Importar planilha'}).click();
   await screenshot('29-ponto-importacao', 'Importação de ponto CSV/XLSX e modelo gratuito');
     await page.setViewportSize({width:1024,height:768});
