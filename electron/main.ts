@@ -1,3 +1,4 @@
+import {filterPayrollRecords,filterReportRows} from '../src/shared/workspace-scope';
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import { registerUpdateFlow } from './updates';
@@ -179,7 +180,7 @@ function bindIPC() {
     const result=await dialog.showSaveDialog(mainWindow!,{title:'Exportar indicadores de ponto',defaultPath:'Indicadores-Ponto-'+v.competence+'.csv',filters:[{name:'CSV',extensions:['csv']}]});
     if(result.canceled||!result.filePath)return false;
     const people=new Map(storage.snapshot().employees.map(e=>[e.id,e]));
-    const sheets=storage.attendance.matrix(v.companyId,v.competence);
+    const sheets=filterReportRows(storage.attendance.matrix(v.companyId,v.competence),v.employeeIds);
     const rows=[['Funcionário','Setor','Obra','Centro de custo','Competência','Minutos trabalhados','Minutos extras','Minutos noturnos','Minutos de atraso','Faltas','Saldo banco (min)','DSR estimado em centavos'],
       ...sheets.map(s=>{
         const p=people.get(s.employeeId);
@@ -198,11 +199,13 @@ function bindIPC() {
     await storage.backupTo(result.filePath);
     return true;
   });
-  bind('export-csv',async()=>{
+  bind('export-csv',async(v:any)=>{
+    if(typeof v?.companyId!=='string'||!v.companyId)throw new Error('Selecione a empresa antes de exportar.');
+    storage.getCompany(v.companyId);
     const result=await dialog.showSaveDialog(mainWindow!,{title:'Exportar resumo da folha',defaultPath:'holerites.csv',filters:[{name:'CSV',extensions:['csv']}]});
     if(result.canceled || !result.filePath) return false;
-    const records=storage.snapshot().payrolls;
-    const quote=(s:unknown)=>'"'+String(s??'').replace(/"/g,'""')+'"';
+    const records=filterPayrollRecords(storage.snapshot().payrolls,v);
+    const quote=(s:unknown)=>{const value=String(s??'');return '"'+(/^[=+@-]/.test(value)?"'"+value:value).replace(/"/g,'""')+'"';};
     const rows=[['Competência','Empresa','Funcionário','CPF','Status','Bruto','Descontos','Líquido'],...records.map(p=>[p.competence,p.details.company.legalName,p.details.employee.name,p.details.employee.cpf,p.status,p.details.totals.grossCents/100,p.details.totals.deductionCents/100,p.details.totals.netCents/100])];
     await writeFile(result.filePath,'\uFEFF'+rows.map(r=>r.map(quote).join(';')).join('\r\n'),'utf8');
     return true;
