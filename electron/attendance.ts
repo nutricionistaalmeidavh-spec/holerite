@@ -155,7 +155,7 @@ export class AttendanceStore {
       WHERE ${where} ORDER BY e.name,e.id LIMIT ? OFFSET ?`).all(competence,...params,size,offset) as Row[];
     const groups=new Map<string,PointDay[]>();
     if(!employees.length)return [];
-    const daysQuery=`SELECT d.* FROM (SELECT e.id FROM employees e LEFT JOIN time_sheets s ON s.employee_id=e.id AND s.competence=? WHERE ${where} ORDER BY e.name,e.id LIMIT ? OFFSET ?) e JOIN time_days d ON d.employee_id=e.id AND d.competence=? ORDER BY d.employee_id,d.date`;
+    const daysQuery=`SELECT d.* FROM (SELECT e.id FROM employees e LEFT JOIN time_sheets s ON s.employee_id=e.id AND s.competence=? WHERE ${where} ORDER BY e.name,e.id LIMIT ? OFFSET ?) e CROSS JOIN time_days d ON d.employee_id=e.id AND d.competence=? ORDER BY d.employee_id,d.date`;
     const records=this.db.prepare(daysQuery).iterate(competence,...params,size,offset,competence);
     for(const row of records){
       const id=String(row.employee_id);const list=groups.get(id)??[];list.push(this.dayFrom(row));groups.set(id,list);
@@ -365,7 +365,7 @@ export class AttendanceStore {
   }
   saveImportMapping(companyId:string,headers:string[],mapping:Record<string,string>):void {
     this.requireEnabled(companyId);
-    if(!Array.isArray(headers)||headers.length>50||!headers.length||Object.values(mapping).some(value=>!headers.includes(value)))
+    if(!Array.isArray(headers)||!headers.length||Object.values(mapping).some(value=>!headers.includes(value)))
       throw new Error('Mapeamento inválido para as colunas da planilha.');
     this.db.prepare('INSERT INTO time_import_mappings(company_id,headers_json,mapping_json,updated_at) VALUES(?,?,?,?) ON CONFLICT(company_id,headers_json) DO UPDATE SET mapping_json=excluded.mapping_json,updated_at=excluded.updated_at')
       .run(companyId,JSON.stringify(headers),JSON.stringify(mapping),now());
