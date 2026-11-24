@@ -144,9 +144,10 @@ export class HoleriteDatabase {
     const selected=companies.find(c=>c.id===companyId)?.id??companies[0]?.id;
     if(!selected)return {companies,employees:[],payrolls:[]};
     if(!/^20\d{2}-(0[1-9]|1[0-2])$/.test(competence))throw new Error('Competência inválida.');
-    const rows=this.db.prepare("SELECT * FROM payrolls WHERE company_id=? AND (competence=? OR (kind='thirteenth-first' AND competence>=? AND competence<=?)) ORDER BY competence DESC,created_at DESC,id DESC").all(selected,competence,competence.slice(0,4)+'-01',competence.slice(0,4)+'-12') as Row[];
+    const rows=this.db.prepare('SELECT * FROM payrolls WHERE company_id=? AND competence=?').all(selected,competence) as Row[];
+    const advances=this.db.prepare("SELECT * FROM payrolls WHERE company_id=? AND kind='thirteenth-first' AND competence>=? AND competence<=?").all(selected,competence.slice(0,4)+'-01',competence.slice(0,4)+'-12') as Row[];
     const recent=this.db.prepare('SELECT * FROM payrolls WHERE company_id=? ORDER BY competence DESC,created_at DESC,id DESC LIMIT 6').all(selected) as Row[];
-    const combined=new Map([...rows,...recent].map(row=>[String(row.id),row]));
+    const combined=new Map([...rows,...advances,...recent].map(row=>[String(row.id),row]));
     return {companies,employees:this.listEmployees(selected),payrolls:[...combined.values()].map(r=>this.payrollFrom(r)).sort((a,b)=>b.competence.localeCompare(a.competence)||b.createdAt.localeCompare(a.createdAt)||b.id.localeCompare(a.id))};
   }
   private payrollWhere(scope:PayrollScope){
