@@ -27,13 +27,12 @@ async function printWindow(p: PayrollRecord, action:'pdf'|'print'): Promise<bool
       await writeFile(selection.filePath,pdf);
       return true;
     }
-    await new Promise<void>((resolve,reject)=>{
+    return await new Promise<boolean>((resolve,reject)=>{
       window.webContents.print({silent:false,printBackground:true},(success,reason)=>{
-        if (success || reason==='Print job canceled') resolve();
+        if(success)resolve(true);else if(reason==='Print job canceled')resolve(false);
         else reject(new Error(reason || 'Falha na impressão.'));
       });
     });
-    return true;
   } finally {if (!window.isDestroyed()) window.destroy();}
 }
 async function printTime(employeeId:string,competence:string,action:'pdf'|'print'):Promise<boolean>{
@@ -49,11 +48,10 @@ async function printTime(employeeId:string,competence:string,action:'pdf'|'print
       const data=await window.webContents.printToPDF({pageSize:'A4',printBackground:true,landscape:true});
       await writeFile(selection.filePath,data);return true;
     }
-    await new Promise<void>((resolve,reject)=>window.webContents.print({silent:false,printBackground:true},(success,reason)=>{
-      if(success||reason==='Print job canceled')resolve();
+    return await new Promise<boolean>((resolve,reject)=>window.webContents.print({silent:false,printBackground:true},(success,reason)=>{
+      if(success)resolve(true);else if(reason==='Print job canceled')resolve(false);
       else reject(new Error(reason||'Falha ao imprimir ficha.'));
     }));
-    return true;
   }finally{if(!window.isDestroyed())window.destroy();}
 }
 
@@ -68,8 +66,8 @@ async function printTimeBatch(companyId:string,competence:string,employeeIds:str
       const selection=await dialog.showSaveDialog(mainWindow!,{title:'Salvar fichas da equipe',defaultPath:'Fichas-Ponto-Equipe-'+competence+'.pdf',filters:[{name:'PDF',extensions:['pdf']}]});
       if(selection.canceled||!selection.filePath)return false;
       await writeFile(selection.filePath,await win.webContents.printToPDF({pageSize:'A4',printBackground:true,landscape:true}));
-    }else await new Promise<void>((resolve,reject)=>win.webContents.print({silent:false,printBackground:true},(success,reason)=>{
-      if(success||reason==='Print job canceled')resolve();
+    }else return await new Promise<boolean>((resolve,reject)=>win.webContents.print({silent:false,printBackground:true},(success,reason)=>{
+      if(success)resolve(true);else if(reason==='Print job canceled')resolve(false);
       else reject(new Error(reason||'Falha na impressão em lote.'));
     }));
     return true;
@@ -293,7 +291,7 @@ app.whenReady().then(async()=>{
 }).catch(err=>{dialog.showErrorBox('Erro ao iniciar ArtiSys Holerites',String(err));app.quit();});
 app.on('window-all-closed',()=>{if(process.platform!=='darwin') app.quit();});
 let closing=false,closed=false;
-app.on('before-quit',event=>{
+app.on('will-quit',event=>{
   if(closed||!db)return;
   event.preventDefault();if(closing)return;closing=true;
   void db.close().catch(error=>console.error('Falha ao encerrar banco:',error)).finally(()=>{closed=true;app.quit();});
