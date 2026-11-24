@@ -172,6 +172,9 @@ export interface HoleriteAPI {
   getTimeSchedule(employeeId:string):Promise<WorkSchedule>;
   setTimeSchedule(input:{employeeId:string;schedule:WorkSchedule}):Promise<WorkSchedule>;
   getTimeSheet(input:{employeeId:string;competence:string}):Promise<TimeSheet>;
+  getTimeMatrixPage(input:import('../../electron/attendance').MatrixPageInput):Promise<import('../../electron/attendance').MatrixPageResult>;
+  generateTimeTeam(input:{companyId:string;competence:string;include:boolean}):Promise<{reviewed:number;employees:number}>;
+  reviewTimeTeam(input:{companyId:string;competence:string}):Promise<{reviewed:number;employees:number}>;
   getTimeMatrix(input:{companyId:string;competence:string}):Promise<Array<TimeSheet&{employeeName:string}>>;
   getTimeAudit(input:{employeeId:string;competence:string}):Promise<Array<{date:string|null;action:string;reason:string;created_at:string;actor_name?:string}>>;
   getTimeAuditPage(input:{employeeId:string;competence:string;page:number;pageSize?:number}):Promise<{rows:Array<{date:string|null;action:string;reason:string;created_at:string;actor_name?:string}>;total:number}>;
