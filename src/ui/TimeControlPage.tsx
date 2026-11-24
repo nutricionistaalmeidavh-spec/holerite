@@ -1,6 +1,6 @@
-import {useCallback,useEffect,useMemo,useState} from 'react';
+import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
 import type {Employee,PointAttachment} from '../shared/types';
-import type {TimeConfig,TimeSheet,MatrixChange} from '../../electron/attendance';
+import type {TimeConfig,TimeSheet,MatrixChange,MatrixPageResult} from '../../electron/attendance';
 import type {ImportChoice,ImportMapping,ImportPreview,ImportField} from '../../electron/time-import';
 import type {PointDay,WorkSchedule} from '../shared/time';
 import {defaultSchedule,previewMonth,workedMinutes,diagnosePointDays} from '../shared/time';
@@ -25,30 +25,53 @@ function actualHours(day:PointDay):string {
   try{return duration(workedMinutes(day));}catch{return '—';}
 }
 const weekdays=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
-type View='individual'|'matrix'|'import'|'settings'|'reports';
+export type TimeView='individual'|'matrix'|'import'|'settings'|'reports';
+export type MatrixFilter='all'|'closed'|'open'|'issues'|'changed';
+type View=TimeView;
+type MatrixRow={key:string;employeeId:string;employeeName:string;revision:number;competence:string;day:PointDay};
 type GenerationRequest={scope:'individual'|'team';companyId:string;competence:string;employeeId?:string};
 
-export function TimeControlPage({companyId,competence,employees,onPayrollUpdated,initialEmployeeId=''}:{
+export function TimeControlPage({companyId,competence,employees,onPayrollUpdated,initialEmployeeId='',initialView='individual',initialMatrixFilter='all',readOnly=false,onDirtyChange,onBusyChange,onOpenPayroll}:{
   companyId:string;competence:string;employees:Employee[];
-  initialEmployeeId?:string;onPayrollUpdated:(employeeId:string)=>void
+  initialEmployeeId?:string;initialView?:TimeView;initialMatrixFilter?:MatrixFilter;readOnly?:boolean;onDirtyChange?:(dirty:boolean)=>void;onBusyChange?:(busy:boolean)=>void;onOpenPayroll?:(employeeId:string)=>void;onPayrollUpdated:(employeeId:string)=>void|Promise<void>
 }){
   const [config,setConfig]=useState<TimeConfig|null>(null);
   const [employeeId,setEmployeeId]=useState('');
+  const sheetRequest=useRef(0);
+  const matrixRequest=useRef(0);
   const [schedule,setSchedule]=useState<WorkSchedule>(defaultSchedule());
   const [sheet,setSheet]=useState<TimeSheet|null>(null);
   const [days,setDays]=useState<PointDay[]>([]);
-  const [view,setView]=useState<View>('individual');
+  const [view,setView]=useState<View>(initialView);
   const [matrix,setMatrix]=useState<Array<TimeSheet&{employeeName:string}>>([]);
   const [matrixDrafts,setMatrixDrafts]=useState<Record<string,PointDay>>({});
+  const draftRows=useRef<Record<string,MatrixRow>>({});
+  const clearDrafts=()=>{draftRows.current={};setMatrixDrafts({});};
+  const [matrixInfo,setMatrixInfo]=useState<Omit<MatrixPageResult,'rows'>>({total:0,teamTotal:0,closed:0,suggested:0});
+  const [matrixLoading,setMatrixLoading]=useState(false);
+  const [matrixLoadedKey,setMatrixLoadedKey]=useState('');
+  const [printPage,setPrintPage]=useState(0);
+  const [printSearch,setPrintSearch]=useState('');
   const [selectedForPrint,setSelectedForPrint]=useState<string[]>([]);
   const [filter,setFilter]=useState('');
+  const [matrixFilter,setMatrixFilter]=useState<MatrixFilter>(initialMatrixFilter);
+  const [savedSchedule,setSavedSchedule]=useState('');
+  const [savedConfig,setSavedConfig]=useState('');
   const [reportFilter,setReportFilter]=useState('');
   const [page,setPage]=useState(0);
+  const [reportPage,setReportPage]=useState(0);
+  const [reportTotals,setReportTotals]=useState<Awaited<ReturnType<typeof window.holerites.getTimeReportTotals>>|null>(null);
   const [importChoice,setImportChoice]=useState<ImportChoice|null>(null);
   const [mapping,setMapping]=useState<ImportMapping>({});
   const [preview,setPreview]=useState<ImportPreview|null>(null);
   const [allowReplace,setAllowReplace]=useState(false);
   const [audit,setAudit]=useState<Array<{date:string|null;action:string;reason:string;created_at:string;actor_name?:string}>>([]);
+  const [auditTotal,setAuditTotal]=useState(0);
+  const [auditPage,setAuditPage]=useState(0);
+  const [auditOpen,setAuditOpen]=useState(false);
+  const [imports,setImports]=useState<{rows:Array<{filename:string;processed:number;created_at:string}>;total:number}>({rows:[],total:0});
+  const [importPage,setImportPage]=useState(0);
+  const [importRevision,setImportRevision]=useState(0);
   const [attachments,setAttachments]=useState<PointAttachment[]>([]);
   const [bankBalance,setBankBalance]=useState(0);
   const [busy,setBusy]=useState(false);
@@ -65,29 +88,45 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
   };
   useEffect(()=>{
     let mounted=true;
-    setGenerationRequest(null);setConfig(null);setEmployeeId(employees.some(e=>e.id===initialEmployeeId&&e.companyId===companyId)?initialEmployeeId:'');setSheet(null);setDays([]);setMatrix([]);setMatrixDrafts({});
-    if(companyId)window.holerites.getTimeConfig(companyId).then(c=>{if(mounted){setConfig(c);setSchedule(c.schedule);}}).catch(e=>{if(mounted)setError(String(e));});
+    setGenerationRequest(null);setConfig(null);setSelectedForPrint([]);setFilter('');setPage(0);setImportChoice(null);setPreview(null);setEmployeeId(employees.some(e=>e.id===initialEmployeeId&&e.companyId===companyId)?initialEmployeeId:'');setSheet(null);setDays([]);setMatrix([]);clearDrafts();
+    if(companyId)window.holerites.getTimeConfig(companyId).then(c=>{if(mounted){setConfig(c);setSavedConfig(JSON.stringify(c));setSchedule(c.schedule);setSavedSchedule(JSON.stringify(c.schedule));}}).catch(e=>{if(mounted)setError(String(e));});
     return ()=>{mounted=false;};
   },[companyId]);
   const loadSheet=useCallback(async()=>{
     if(!employeeId||!ready)return;
-    const [result,personSchedule,history,balance,documents]=await Promise.all([
+    const request=++sheetRequest.current;
+    const [result,personSchedule,balance,documents]=await Promise.all([
       window.holerites.getTimeSheet({employeeId,competence}),window.holerites.getTimeSchedule(employeeId),
-      window.holerites.getTimeAudit({employeeId,competence}),
       window.holerites.getTimeBankBalance({employeeId,competence}),
       window.holerites.getTimeAttachments({employeeId,competence})
     ]);
-    setSheet(result);setDays(result.days);setSchedule(personSchedule);setAudit(history);setBankBalance(balance);setAttachments(documents);
+    if(request!==sheetRequest.current)return;
+    setSheet(result);setDays(result.days);setSchedule(personSchedule);setSavedSchedule(JSON.stringify(personSchedule));setAudit([]);setAuditTotal(0);setAuditPage(0);setAuditOpen(false);setBankBalance(balance);setAttachments(documents);
   },[employeeId,competence,ready]);
+  const matrixPageSize=5,reportPageSize=50;
+  const queryPage=view==='reports'?reportPage:matrixFilter==='changed'?0:page;
+  const querySearch=view==='reports'?reportFilter:matrixFilter==='changed'?'':filter;
+  const queryStatus=view==='reports'||matrixFilter==='changed'?'all':matrixFilter;
+  const querySize=view==='reports'?reportPageSize:matrixPageSize;
+  const matrixQueryKey=JSON.stringify([companyId,competence,view,queryPage,querySearch,queryStatus,querySize]);
   const loadMatrix=useCallback(async()=>{
-    if(!ready||!companyId)return;
-    const result=await window.holerites.getTimeMatrix({companyId,competence});
-    setMatrix(result);setMatrixDrafts({});
-  },[ready,companyId,competence]);
-  useEffect(()=>{let active=true;if(!employeeId||!ready){setSheet(null);setDays([]);return;}
+    if(!ready||!companyId||!['matrix','reports'].includes(view))return;
+    const request=++matrixRequest.current;setMatrixLoading(true);
+    try{
+      const result=await window.holerites.getTimeMatrixPage({companyId,competence,page:queryPage,pageSize:querySize,search:querySearch,status:queryStatus,report:view==='reports'});
+      if(request!==matrixRequest.current)return;
+      setMatrix(result.rows);setMatrixInfo(result);setMatrixLoadedKey(matrixQueryKey);
+      const last=Math.max(0,Math.ceil(result.total/querySize)-1);
+      if(queryPage>last){if(view==='reports')setReportPage(last);else setPage(last);}
+    }finally{if(request===matrixRequest.current)setMatrixLoading(false);}
+  },[ready,companyId,competence,view,queryPage,querySize,querySearch,queryStatus,matrixQueryKey]);
+  const matrixReady=!matrixLoading&&matrixLoadedKey===matrixQueryKey;
+  useEffect(()=>{let active=true;if(!employeeId||!ready){sheetRequest.current++;setSheet(null);setDays([]);return;}
     loadSheet().catch(e=>{if(active)setError(String(e));});return()=>{active=false;};
   },[loadSheet,employeeId,ready]);
-  useEffect(()=>{if((view==='matrix'||view==='reports')&&ready)loadMatrix().catch(e=>setError(String(e)));},[view,loadMatrix,ready]);
+  useEffect(()=>{if(!['matrix','reports'].includes(view)||!ready)return;const timer=setTimeout(()=>loadMatrix().catch(e=>setError(String(e))),100);return()=>{clearTimeout(timer);matrixRequest.current++;};},[view,loadMatrix,ready]);
+  useEffect(()=>{if(!employeeId||!auditOpen||!ready)return;let active=true;window.holerites.getTimeAuditPage({employeeId,competence,page:auditPage,pageSize:50}).then(result=>{if(active){setAudit(result.rows);setAuditTotal(result.total);}}).catch(e=>{if(active)setError(String(e));});return()=>{active=false;};},[employeeId,competence,auditOpen,auditPage,ready]);
+  useEffect(()=>{if(view!=='import'||!ready)return;let active=true;window.holerites.getTimeImportPage({companyId,page:importPage,pageSize:50}).then(result=>{if(active)setImports(result);}).catch(e=>{if(active)setError(String(e));});return()=>{active=false;};},[view,ready,companyId,importPage,importRevision]);
   const changeDay=(date:string,patch:Partial<PointDay>)=>{
     setDays(rows=>rows.map(day=>{
       if(day.date!==date)return day;
@@ -99,14 +138,28 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
   const selected=activeEmployees.find(e=>e.id===employeeId);
   const sheetIssues=useMemo(()=>diagnosePointDays(days,schedule,competence),[days,schedule,competence]);
   const matrixIssues=useMemo(()=>matrix.flatMap(s=>s.issues.map(issue=>({...issue,employeeId:s.employeeId,employeeName:s.employeeName}))),[matrix]);
+  const matrixByEmployee=useMemo(()=>new Map(matrix.map(s=>[s.employeeId,s])),[matrix]);
+  const employeeById=useMemo(()=>new Map(activeEmployees.map(e=>[e.id,e])),[activeEmployees]);
   const matrixIssueKeys=useMemo(()=>new Set(matrixIssues.map(issue=>issue.employeeId+'|'+issue.date)),[matrixIssues]);
-  const matrixSummary=useMemo(()=>({total:matrix.length,closed:matrix.filter(s=>s.status==='closed').length,suggested:matrix.reduce((sum,s)=>sum+s.days.filter(d=>d.source==='suggested').length,0)}),[matrix]);
-  const reportRows=useMemo(()=>matrix.filter(s=>{
-    const employee=activeEmployees.find(e=>e.id===s.employeeId);
-    return [s.employeeName,employee?.sector,employee?.jobSite,employee?.costCenter].some(value=>(value||'').toLowerCase().includes(reportFilter.toLowerCase()));
-  }),[matrix,activeEmployees,reportFilter]);
+  const matrixSummary={total:matrixInfo.teamTotal,closed:matrixInfo.closed,suggested:matrixInfo.suggested};
+  const reportRows=matrixReady?matrix:[];
+  useEffect(()=>{setReportTotals(null);},[companyId,competence,view,reportFilter]);
+  const reportEmployeeIds=useMemo(()=>activeEmployees.filter(e=>[e.name,e.sector,e.jobSite,e.costCenter].some(v=>(v||'').toLowerCase().includes(reportFilter.trim().toLowerCase()))).map(e=>e.id),[activeEmployees,reportFilter]);
+  const printPeople=useMemo(()=>activeEmployees.filter(e=>e.name.toLowerCase().includes(printSearch.toLowerCase())),[activeEmployees,printSearch]);
   const changedDays=days.filter(day=>JSON.stringify(day)!==JSON.stringify(sheet?.days.find(old=>old.date===day.date)));
+  const dirty=changedDays.length>0||Object.keys(matrixDrafts).length>0||!!(config&&savedConfig&&JSON.stringify(config)!==savedConfig)||!!(employeeId&&savedSchedule&&JSON.stringify(schedule)!==savedSchedule);
+  useEffect(()=>{onDirtyChange?.(dirty);},[dirty,onDirtyChange]);
+  useEffect(()=>{onBusyChange?.(busy);},[busy,onBusyChange]);
+  useEffect(()=>()=>{onDirtyChange?.(false);onBusyChange?.(false);},[onDirtyChange,onBusyChange]);
+  const mayLeave=()=>!busy&&(!dirty||window.confirm('Há alterações não salvas. Deseja descartá-las? Cancelar mantém a edição atual.'));
+  const switchView=(next:View)=>{if(next===view)return;if(!mayLeave())return;clearDrafts();if(sheet)setDays(sheet.days);if(savedSchedule)setSchedule(JSON.parse(savedSchedule));if(savedConfig)setConfig(JSON.parse(savedConfig));setPage(0);setReportPage(0);setView(next);};
+  const openIndividual=(id:string)=>{if(!mayLeave())return;clearDrafts();if(sheet)setDays(sheet.days);if(savedSchedule)setSchedule(JSON.parse(savedSchedule));if(savedConfig)setConfig(JSON.parse(savedConfig));if(id!==employeeId){sheetRequest.current++;setSheet(null);setDays([]);setEmployeeId(id);}setView('individual');};
   const saveDays=async()=>{
+    if(readOnly)return;
+    if(employeeId&&savedSchedule&&JSON.stringify(schedule)!==savedSchedule){
+      if(!window.confirm('A jornada deste funcionário também foi alterada. Salvar a jornada antes de continuar?'))throw new Error('Operação cancelada. As alterações foram mantidas.');
+      const saved=await window.holerites.setTimeSchedule({employeeId,schedule});setSchedule(saved);setSavedSchedule(JSON.stringify(saved));
+    }
     if(!sheet||!changedDays.length)return;
     await window.holerites.saveTimeMatrix({changes:changedDays.map(day=>({
       employeeId,competence,day,expectedRevision:sheet.revision
@@ -116,18 +169,25 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
   const configure=async(next:TimeConfig)=>{
     if(!companyId)return;
     const configSaved=await window.holerites.setTimeConfig({companyId,config:next});
-    setConfig(configSaved);setNotice('Parâmetros de jornada salvos para esta empresa.');
+    setConfig(configSaved);setSavedConfig(JSON.stringify(configSaved));setNotice('Parâmetros de jornada salvos para esta empresa.');
   };
   const setScheduleField=<K extends keyof WorkSchedule>(key:K,value:WorkSchedule[K])=>setSchedule(old=>({...old,[key]:value}));
-  const matrixRows=useMemo(()=>{
-    const all=matrix.flatMap(s=>s.days.map(day=>({
+  const allMatrixRows=useMemo(()=>matrix.flatMap(s=>s.days.map(day=>({
       key:s.employeeId+'|'+day.date,employeeId:s.employeeId,employeeName:s.employeeName,
       revision:s.revision,competence:s.competence,day
-    })));
-    return all.filter(row=>row.employeeName.toLowerCase().includes(filter.toLowerCase())||row.day.date.includes(filter));
-  },[matrix,filter]);
-  const visibleMatrixRows=matrixRows.slice(page*100,(page+1)*100);
+    }))),[matrix]);
+  const matrixRows=useMemo(()=>(matrixFilter==='changed'?Object.values(draftRows.current):matrixReady?allMatrixRows:[]).filter(row=>{
+    const search=filter.trim().toLowerCase();
+    const matches=row.employeeName.toLowerCase().includes(search)||row.day.date.includes(search);
+    const closed=matrixByEmployee.get(row.employeeId)?.status==='closed';
+    return matches&&(matrixFilter==='all'||(matrixFilter==='closed'&&closed)||(matrixFilter==='open'&&!closed)||(matrixFilter==='issues'&&matrixIssueKeys.has(row.key))||(matrixFilter==='changed'&&!!matrixDrafts[row.key]));
+  }),[allMatrixRows,filter,matrixFilter,matrixByEmployee,matrixIssueKeys,matrixDrafts,matrixReady]);
+  const applyMatrixFilter=(next:MatrixFilter)=>{setMatrixFilter(next);setPage(0);};
+  const visibleMatrixRows=matrixFilter==='changed'?matrixRows.slice(page*100,(page+1)*100):matrixRows;
+  const matrixPageTotal=matrixFilter==='changed'?Math.max(1,Math.ceil(matrixRows.length/100)):Math.max(1,Math.ceil(matrixInfo.total/matrixPageSize));
+  useEffect(()=>{if(matrixFilter==='changed')setPage(p=>Math.min(p,matrixPageTotal-1));},[matrixFilter,matrixPageTotal]);
   const matrixEdit=(key:string,original:PointDay,patch:Partial<PointDay>)=>{
+    const row=draftRows.current[key]??allMatrixRows.find(r=>r.key===key);if(!row)return;draftRows.current[key]=row;
     setMatrixDrafts(all=>{
       const current=all[key]||original;
       const editedPunch=Object.keys(patch).some(field=>['kind','start','breakStart','breakEnd','end'].includes(field));
@@ -142,24 +202,23 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
     const next={...matrixDrafts};
     cells.forEach((line,rowIndex)=>{
       const row=visibleMatrixRows[position+rowIndex];
-      if(!row||matrix.find(s=>s.employeeId===row.employeeId)?.status==='closed')return;
+      if(!row||matrixByEmployee.get(row.employeeId)?.status==='closed')return;
       const current=next[row.key]||row.day;
       const state={...current};
       line.forEach((value,columnIndex)=>{
         const key=editable[startColumn+columnIndex];
         if(key){Object.assign(state,{[key]:value});if(key!=='notes')state.source='manual';}
       });
+      draftRows.current[row.key]=draftRows.current[row.key]??row;
       next[row.key]=state;
     });
     setMatrixDrafts(next);
   };
   const saveMatrix=async()=>{
-    const changes:MatrixChange[]=matrixRows.filter(row=>matrixDrafts[row.key]).map(row=>({
-      employeeId:row.employeeId,competence,day:matrixDrafts[row.key],expectedRevision:row.revision
-    }));
-    if(!changes.length)return;
+    const changes:MatrixChange[]=Object.entries(matrixDrafts).map(([key,day])=>{const row=draftRows.current[key];if(!row)throw new Error('Não foi possível localizar a revisão de uma alteração.');return {employeeId:row.employeeId,competence:row.competence,expectedRevision:row.revision,day};});
+    if(!changes.length||readOnly)return;
     await window.holerites.saveTimeMatrix({changes});
-    await loadMatrix();if(sheet)await loadSheet();setNotice(changes.length+' dia(s) atualizados na matriz.');
+    clearDrafts();await loadMatrix();if(sheet)await loadSheet();setNotice(changes.length+' dia(s) atualizados na matriz.');
   };
   const generateFromDialog=async(includeInCalculation:boolean)=>{
     const request=generationRequest;
@@ -184,11 +243,8 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
         return;
       }
       await saveMatrix();
-      const editable=matrix.filter(s=>s.status==='draft').map(s=>s.employeeId);
-      if(!editable.length)throw new Error('Não há funcionários com ficha editável nesta competência.');
-      for(const id of editable)await window.holerites.autofillTimeSheet({employeeId:id,competence:request.competence});
+      const reviewed=await window.holerites.generateTimeTeam({companyId:request.companyId,competence:request.competence,include:includeInCalculation});
       if(includeInCalculation){
-        const reviewed=await window.holerites.reviewTimeSuggestions({employeeIds:editable,competence:request.competence});
         setNotice(reviewed.reviewed
           ?reviewed.reviewed+' dias de '+reviewed.employees+' funcionário(s) incluídos imediatamente na apuração.'
           :'Nenhum horário sugerido pendente de inclusão na apuração.');
@@ -201,7 +257,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
   };
   const saveSchedule=async()=>{
     if(employeeId){
-      setSchedule(await window.holerites.setTimeSchedule({employeeId,schedule}));
+      const saved=await window.holerites.setTimeSchedule({employeeId,schedule});setSchedule(saved);setSavedSchedule(JSON.stringify(saved));
       setNotice('Jornada personalizada do funcionário salva.');
     }else if(config)await configure({...config,schedule});
   };
@@ -211,7 +267,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
         <h2>Controle de ponto <small>início da folha mensal</small></h2>
         <p>Preencha ou importe os horários, revise o mês inteiro e imprima as fichas para assinatura física. A conferência orienta e não bloqueia a emissão do holerite.</p>
         <ol className="time-steps" aria-label="Fluxo mensal">
-          <li>1. Jornada</li><li>2. Preenchimento</li><li>3. Conferência em lote</li><li>4. Impressão e assinatura</li><li>5. Holerite</li>
+          <li><button type="button" className="flow-link" onClick={()=>switchView('settings')}>1. Jornada</button></li><li><button type="button" className="flow-link" onClick={()=>switchView('individual')}>2. Preenchimento</button></li><li><button type="button" className="flow-link" onClick={()=>switchView('matrix')}>3. Conferência em lote</button></li><li><button type="button" className="flow-link" onClick={()=>{if(view!=='matrix'&&!mayLeave())return;if(view!=='matrix'){clearDrafts();if(sheet)setDays(sheet.days);if(savedSchedule)setSchedule(JSON.parse(savedSchedule));if(savedConfig)setConfig(JSON.parse(savedConfig));setView('matrix');}setTimeout(()=>document.getElementById('team-print-action')?.focus(),0);}}>4. Impressão e assinatura</button></li><li><button type="button" className="flow-link" disabled={!onOpenPayroll||busy} onClick={()=>onOpenPayroll?.(employeeId)}>5. Holerite</button></li>
         </ol>
       </div>
     </section>
@@ -221,10 +277,10 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
       <div className="time-toolbar" role="tablist" aria-label="Áreas do controle de ponto">
         {([['individual','Ficha individual'],['matrix','Matriz da equipe'],['import','Importar planilha'],['reports','Relatórios'],['settings','Configurações']] as [View,string][]).map(([v,label])=>
           <button key={v} className={'btn '+(view===v?'btn-primary':'btn-secondary')} aria-selected={view===v} role="tab"
-            onClick={()=>setView(v)}>{label}</button>)}
+            onClick={()=>switchView(v)}>{label}</button>)}
       </div>
       {view==='settings'&&config&&<section className="card time-settings">
-        <h2>Configuração geral de jornada</h2><p>A jornada padrão é usada para gerar sugestões; não é um registro de batidas.</p>
+        <fieldset className="settings-fieldset" disabled={readOnly||busy}><h2>Configuração geral de jornada</h2><p>A jornada padrão é usada para gerar sugestões; não é um registro de batidas.</p>
         <div className="time-form-grid">
           {fields.map(field=><label className="field" key={field}><span>{timeLabel[field]}</span><input type="time" value={config.schedule[field]} onChange={e=>
             setConfig(old=>old?{...old,schedule:{...old.schedule,[field]:e.target.value}}:old)}/></label>)}
@@ -260,10 +316,10 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
         <div className="time-weekdays">{weekdays.map((day,index)=><label key={day}><input type="checkbox" checked={config.schedule.weekdays.includes(index)}
           onChange={e=>setConfig(old=>old?{...old,schedule:{...old.schedule,weekdays:e.target.checked?[...old.schedule.weekdays,index].sort() :old.schedule.weekdays.filter(d=>d!==index)}}:old)}/>{day}</label>)}</div>
         <p className="time-legal">Variação opcional (0–10 min), desativada por padrão; somente nas sugestões. Adicionais e divisores devem ser conferidos conforme categoria e legislação.</p>
-        <button className="btn btn-primary" disabled={busy} onClick={()=>void run(()=>configure(config))}>Salvar configurações</button>
+        <button className="btn btn-primary" disabled={readOnly||busy} onClick={()=>void run(()=>configure(config))}>Salvar configurações</button></fieldset>
       </section>}
       {view==='individual'&&<section className="card time-sheet">
-        <div className="time-filters"><label className="field"><span>Funcionário</span><select value={employeeId} onChange={e=>setEmployeeId(e.target.value)}>
+        <div className="time-filters"><label className="field"><span>Funcionário</span><select value={employeeId} onChange={e=>openIndividual(e.target.value)}>
           <option value="">Selecione o funcionário</option>{activeEmployees.map(e=><option key={e.id} value={e.id}>{e.name} · {e.registration||e.cpf}</option>)}
         </select></label><span>Competência: <strong>{competence}</strong></span></div>
         {!employeeId?<p>Selecione um funcionário para preencher ou importar a jornada, conferir e fechar a ficha. O holerite é gerado depois.</p>:sheet&&<>
@@ -271,58 +327,56 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
             <small>Trabalhadas {duration(sheet.summary.workedMinutes)} | Extras {duration(sheet.summary.overtimeMinutes)} | Déficit {duration(sheet.summary.deficitMinutes)} | Noturnas {duration(sheet.summary.nightMinutes)} | Saldo banco {bankBalance<0?'-':'+'}{duration(bankBalance)}</small></div>
           {sheetIssues.length>0&&<details className="time-audit"><summary>Conferências recomendadas: {sheetIssues.length} aviso(s), sem impedimento</summary><ul>{sheetIssues.slice(0,35).map((issue,i)=><li key={i}>{dayText(issue.date)} · {issue.message}</li>)}</ul></details>}
           <div className="time-mini-config"><strong>Jornada deste funcionário</strong>
-            {fields.map(field=><label key={field}>{timeLabel[field]}<input type="time" value={schedule[field]} disabled={sheet.status==='closed'} onChange={e=>setScheduleField(field,e.target.value)}/></label>)}
-            <button className="btn btn-secondary" disabled={busy||sheet.status==='closed'} onClick={()=>void run(saveSchedule)}>Salvar jornada</button></div>
+            {fields.map(field=><label key={field}>{timeLabel[field]}<input type="time" value={schedule[field]} disabled={readOnly||busy||sheet.status==='closed'} onChange={e=>setScheduleField(field,e.target.value)}/></label>)}
+            <button className="btn btn-secondary" disabled={readOnly||busy||sheet.status==='closed'} onClick={()=>void run(saveSchedule)}>Salvar jornada</button></div>
           <div className="time-actions">
-            <button className="btn btn-secondary" disabled={busy||sheet.status==='closed'} onClick={()=>{
+            <button className="btn btn-secondary" disabled={readOnly||busy||sheet.status==='closed'} onClick={()=>{
               const registered=new Set(days.map(d=>d.date));
               const blanks=previewMonth(competence,schedule,0).filter(d=>!registered.has(d.date))
                 .map(d=>({...d,source:'manual' as const,start:'',breakStart:'',breakEnd:'',end:''}));
               setDays(current=>[...current,...blanks].sort((a,b)=>a.date.localeCompare(b.date)));
               setNotice('Calendário vazio criado. Informe as batidas reais e salve.');
             }}>Criar ficha manual</button>
-            <button className="btn btn-secondary" disabled={busy||sheet.status==='closed'}
+            <button className="btn btn-secondary" disabled={readOnly||busy||sheet.status==='closed'}
               onClick={()=>setGenerationRequest({scope:'individual',companyId,competence,employeeId})}>Gerar calendário sugerido</button>
-            <button className="btn btn-primary" disabled={busy||sheet.status==='closed'||!days.some(day=>day.source==='suggested')}
+            <button className="btn btn-primary" disabled={readOnly||busy||sheet.status==='closed'||!days.some(day=>day.source==='suggested')}
               onClick={()=>void run(async()=>{
                 await saveDays();
                 const result=await window.holerites.reviewTimeSuggestions({employeeIds:[employeeId],competence});
                 await loadSheet();
                 setNotice(result.reviewed+' dias conferidos em lote; a origem gerada permanece registrada.');
               })}>Conferir mês em lote</button>
-            <button className="btn btn-primary" disabled={busy||sheet.status==='closed'||!changedDays.length} onClick={()=>void run(saveDays)}>Salvar {changedDays.length} alteração(ões)</button>
+            <button className="btn btn-primary" disabled={readOnly||busy||sheet.status==='closed'||!changedDays.length} onClick={()=>void run(saveDays)}>Salvar {changedDays.length} alteração(ões)</button>
             <button className="btn btn-secondary" disabled={busy} onClick={()=>void run(async()=>{await saveDays();await window.holerites.exportTimePDF({employeeId,competence});})}>PDF</button>
             <button className="btn btn-secondary" disabled={busy} onClick={()=>void run(async()=>{await saveDays();await window.holerites.printTimeSheet({employeeId,competence});})}>Imprimir</button>
-            {sheet.status==='draft'?<button className="btn btn-secondary" disabled={busy} onClick={()=>void run(async()=>{await saveDays();await window.holerites.closeTimeSheet({employeeId,competence});await loadSheet();setNotice('Ficha fechada.');})}>Fechar competência</button>:
-              <button className="btn btn-secondary" disabled={busy} onClick={()=>{const reason=window.prompt('Justificativa da reabertura (mín. 8 caracteres):');if(reason)void run(async()=>{await window.holerites.reopenTimeSheet({employeeId,competence,reason});await loadSheet();});}}>Reabrir</button>}
-            <button className="btn btn-primary" disabled={busy} onClick={()=>void run(async()=>{await saveDays();await window.holerites.applyTimeToPayroll({employeeId,competence});onPayrollUpdated(employeeId);})}>Gerar holerite do ponto</button>
+            {sheet.status==='draft'?<button className="btn btn-secondary" disabled={readOnly||busy} onClick={()=>void run(async()=>{await saveDays();await window.holerites.closeTimeSheet({employeeId,competence});await loadSheet();setNotice('Ficha fechada.');})}>Fechar competência</button>:
+              <button className="btn btn-secondary" disabled={readOnly||busy} onClick={()=>{const reason=window.prompt('Justificativa da reabertura (mín. 8 caracteres):');if(reason)void run(async()=>{await window.holerites.reopenTimeSheet({employeeId,competence,reason});await loadSheet();});}}>Reabrir</button>}
+            <button className="btn btn-primary" disabled={readOnly||busy} onClick={()=>void run(async()=>{await saveDays();await window.holerites.applyTimeToPayroll({employeeId,competence});await onPayrollUpdated(employeeId);})}>Gerar holerite do ponto</button>
           </div>
           <div className="table-scroll time-table"><table className="data-table"><thead><tr>
             <th>Dia</th><th>Tipo</th><th>Entrada</th><th>Saída almoço</th><th>Retorno</th><th>Saída</th><th>Origem</th><th>Observações</th><th>Documentos</th>
           </tr></thead><tbody>{days.map(day=><tr key={day.date} className={day.source==='suggested'?'time-suggested':''}>
-            <td>{dayText(day.date)}</td><td><select aria-label={'Tipo '+day.date} disabled={busy||sheet.status==='closed'} value={day.kind} onChange={e=>changeDay(day.date,{kind:e.target.value as PointDay['kind']})}>
+            <td>{dayText(day.date)}</td><td><select aria-label={'Tipo '+day.date} disabled={readOnly||busy||sheet.status==='closed'} value={day.kind} onChange={e=>changeDay(day.date,{kind:e.target.value as PointDay['kind']})}>
               {Object.entries(kindLabels).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></td>
-            {fields.map(field=><td key={field}><input aria-label={timeLabel[field]+' '+day.date} type="time" value={day[field]} disabled={busy||sheet.status==='closed'||day.kind!=='work'}
+            {fields.map(field=><td key={field}><input aria-label={timeLabel[field]+' '+day.date} type="time" value={day[field]} disabled={readOnly||busy||sheet.status==='closed'||day.kind!=='work'}
               onChange={e=>changeDay(day.date,{[field]:e.target.value})}/></td>)}
             <td><span className={'time-source '+day.source}>{day.source==='suggested'?'Sugestão':day.source==='reviewed'?'Gerado · conferido':day.source==='imported'?'Importado':'Manual'}</span></td>
-            <td><input aria-label={'Observação '+day.date} value={day.notes} maxLength={500} disabled={busy||sheet.status==='closed'} onChange={e=>changeDay(day.date,{notes:e.target.value})}/></td>
+            <td><input aria-label={'Observação '+day.date} value={day.notes} maxLength={500} disabled={readOnly||busy||sheet.status==='closed'} onChange={e=>changeDay(day.date,{notes:e.target.value})}/></td>
             <td><div className="time-actions">
-              <button className="btn btn-secondary" disabled={busy} onClick={()=>void run(async()=>{
+              <button className="btn btn-secondary" disabled={readOnly||busy} onClick={()=>void run(async()=>{
                 const item=await window.holerites.addTimeAttachment({employeeId,date:day.date});
                 if(item)setAttachments(await window.holerites.getTimeAttachments({employeeId,competence}));
               })}>Anexar</button>
               {attachments.filter(item=>item.date===day.date).map(item=><span key={item.id}>
                 <button className="btn btn-ghost" title={'Salvar '+item.filename} disabled={busy} onClick={()=>void run(async()=>{await window.holerites.saveTimeAttachment({employeeId,id:item.id});})}>{item.filename}</button>
-                <button className="btn btn-ghost" title={'Remover '+item.filename} disabled={busy} onClick={()=>{
+                <button className="btn btn-ghost" title={'Remover '+item.filename} disabled={readOnly||busy} onClick={()=>{
                   if(window.confirm('Remover o anexo '+item.filename+'?'))void run(async()=>{await window.holerites.removeTimeAttachment({employeeId,id:item.id});setAttachments(await window.holerites.getTimeAttachments({employeeId,competence}));});
                 }}>×</button>
               </span>)}
             </div></td>
           </tr>)}</tbody></table></div>
           {!days.length&&<p>Ficha vazia. Use “Gerar calendário sugerido” ou a importação de planilha.</p>}
-          {audit.length>0&&<details className="time-audit"><summary>Histórico de alterações ({audit.length})</summary><ul>
-            {audit.slice(0,30).map((row,i)=><li key={i}>{row.created_at} · {row.actor_name||'Operador legado'} · {row.date||competence} · {row.action} {row.reason}</li>)}
-          </ul></details>}
+          <details className="time-audit" open={auditOpen} onToggle={e=>setAuditOpen(e.currentTarget.open)}><summary>Histórico de alterações{auditOpen?' ('+auditTotal+')':''}</summary><ul>{audit.map((row,i)=><li key={i}>{row.created_at} · {row.actor_name||'Operador legado'} · {row.date||competence} · {row.action} {row.reason}</li>)}</ul>{auditOpen&&<div className="time-pagination"><button type="button" disabled={auditPage===0} onClick={()=>setAuditPage(p=>p-1)}>Anterior</button><span>Página {auditPage+1} de {Math.max(1,Math.ceil(auditTotal/50))}</span><button type="button" disabled={(auditPage+1)*50>=auditTotal} onClick={()=>setAuditPage(p=>p+1)}>Próxima</button></div>}</details>
         </>}
       </section>}
       {view==='matrix'&&<section className="card time-sheet time-matrix-workspace">
@@ -330,91 +384,93 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
           <div><div className="atlas-overline">REGISTROS DA COMPETÊNCIA</div><h2>Matriz mensal da equipe</h2>
             <p>Uma linha por colaborador e dia, com edição direta e conferência em lote.</p></div>
           <div className="time-matrix-summary" aria-label="Resumo da matriz carregada">
-            <div><strong>{matrixSummary.total}</strong><span>Fichas carregadas</span></div>
-            <div><strong>{matrixSummary.closed}</strong><span>Fichas fechadas</span></div>
-            <div><strong>{matrixIssues.length}</strong><span>Avisos para revisar</span></div>
-            <div><strong>{Object.keys(matrixDrafts).length}</strong><span>Dias alterados</span></div>
+            <button type="button" className="metric-link" aria-pressed={matrixFilter==='all'} onClick={()=>applyMatrixFilter('all')}><strong>{matrixSummary.total}</strong><span>Fichas da equipe</span></button>
+            <button type="button" className="metric-link" aria-pressed={matrixFilter==='closed'} onClick={()=>applyMatrixFilter('closed')}><strong>{matrixSummary.closed}</strong><span>Fichas fechadas</span></button>
+            <button type="button" className="metric-link" aria-pressed={matrixFilter==='issues'} onClick={()=>applyMatrixFilter('issues')}><strong>{matrixIssues.length}</strong><span>Avisos nesta página</span></button>
+            <button type="button" className="metric-link" aria-pressed={matrixFilter==='changed'} onClick={()=>applyMatrixFilter('changed')}><strong>{Object.keys(matrixDrafts).length}</strong><span>Dias alterados</span></button>
           </div>
         </div>
         <div className="time-actions time-matrix-actions">
-          <button className="btn btn-secondary" disabled={busy||!matrix.some(s=>s.status==='draft')}
+          <button className="btn btn-secondary" disabled={readOnly||busy||!matrixReady||matrixSummary.total<=matrixSummary.closed}
             onClick={()=>setGenerationRequest({scope:'team',companyId,competence})}>Criar calendários da equipe</button>
-          <button className="btn btn-primary" disabled={busy||!Object.keys(matrixDrafts).length} onClick={()=>void run(saveMatrix)}>Salvar {Object.keys(matrixDrafts).length} dia(s)</button>
-          <button className="btn btn-primary" disabled={busy||!matrix.some(s=>s.status==='draft'&&s.days.some(day=>day.source==='suggested'))}
+          <button className="btn btn-primary" disabled={readOnly||busy||!Object.keys(matrixDrafts).length} onClick={()=>void run(saveMatrix)}>Salvar {Object.keys(matrixDrafts).length} dia(s)</button>
+          <button className="btn btn-primary" disabled={readOnly||busy||!matrixReady||!matrixSummary.suggested}
             onClick={()=>void run(async()=>{
               await saveMatrix();
-              const ids=matrix.filter(s=>s.status==='draft').map(s=>s.employeeId);
-              const result=await window.holerites.reviewTimeSuggestions({employeeIds:ids,competence});
+              const result=await window.holerites.reviewTimeTeam({companyId,competence});
               await loadMatrix();if(employeeId)await loadSheet();
               setNotice(result.reviewed+' dias de '+result.employees+' funcionário(s) conferidos em lote.');
             })}>Conferir equipe em lote</button>
 
-          <button className="btn btn-secondary" disabled={busy||!matrix.length} onClick={()=>void run(async()=>{await saveMatrix();await window.holerites.exportTimeBatchPDF({companyId,competence,employeeIds:selectedForPrint});})}>PDF fichas em lote</button>
-          <button className="btn btn-secondary" disabled={busy||!matrix.length} onClick={()=>void run(async()=>{await saveMatrix();await window.holerites.printTimeBatch({companyId,competence,employeeIds:selectedForPrint});})}>Imprimir equipe</button>
-          <button className="btn btn-secondary" disabled={busy} onClick={()=>void run(async()=>{await window.holerites.exportTimeMatrix({companyId,competence,format:'xlsx'});})}>Exportar Excel</button>
-          <button className="btn btn-secondary" disabled={busy} onClick={()=>void run(async()=>{await window.holerites.exportTimeMatrix({companyId,competence,format:'csv'});})}>Exportar CSV</button>
+          <button className="btn btn-secondary" disabled={busy||!matrixSummary.total} onClick={()=>void run(async()=>{await saveMatrix();await window.holerites.exportTimeBatchPDF({companyId,competence,employeeIds:selectedForPrint});})}>PDF fichas em lote</button>
+          <button id="team-print-action" className="btn btn-secondary" disabled={busy||!matrixSummary.total} onClick={()=>void run(async()=>{await saveMatrix();await window.holerites.printTimeBatch({companyId,competence,employeeIds:selectedForPrint});})}>Imprimir equipe</button>
+          <button className="btn btn-secondary" disabled={busy} onClick={()=>void run(async()=>{await saveMatrix();await window.holerites.exportTimeMatrix({companyId,competence,format:'xlsx'});})}>Exportar Excel</button>
+          <button className="btn btn-secondary" disabled={busy} onClick={()=>void run(async()=>{await saveMatrix();await window.holerites.exportTimeMatrix({companyId,competence,format:'csv'});})}>Exportar CSV</button>
         </div>
 
         <p>Uma linha por funcionário/dia. Cole do Excel, salve ajustes e confira em lote as sugestões geradas para a equipe. A assinatura será feita no documento impresso.</p>
         <details className="time-audit"><summary>Selecionar funcionários para impressão (nenhum selecionado = todos)</summary>
-          <div className="time-weekdays">{matrix.map(s=><label key={s.employeeId}><input type="checkbox" checked={selectedForPrint.includes(s.employeeId)}
-            onChange={e=>setSelectedForPrint(current=>e.target.checked?[...current,s.employeeId]:current.filter(id=>id!==s.employeeId))}/>{s.employeeName}</label>)}</div>
+          <input aria-label="Buscar funcionários para impressão" value={printSearch} onChange={e=>{setPrintSearch(e.target.value);setPrintPage(0);}}/><p>{selectedForPrint.length} selecionado(s)</p><div className="time-weekdays">{printPeople.slice(printPage*50,(printPage+1)*50).map(s=><label key={s.id}><input type="checkbox" checked={selectedForPrint.includes(s.id)} onChange={e=>setSelectedForPrint(current=>e.target.checked?[...current,s.id]:current.filter(id=>id!==s.id))}/>{s.name}</label>)}</div><div className="time-pagination"><button disabled={printPage===0} onClick={()=>setPrintPage(p=>p-1)}>Anterior</button><span>Página {printPage+1}</span><button disabled={(printPage+1)*50>=printPeople.length} onClick={()=>setPrintPage(p=>p+1)}>Próxima</button></div>
         </details>
-        {matrixIssues.length>0&&<details className="time-audit"><summary>Conferência da equipe: {matrixIssues.length} aviso(s), sem bloquear a apuração</summary><ul>{matrixIssues.slice(0,70).map((issue,i)=><li key={i}>{issue.employeeName} · {dayText(issue.date)} · {issue.message}</li>)}</ul></details>}
+        {matrixIssues.length>0&&<details className="time-audit"><summary>Conferência da equipe: {matrixIssues.length} aviso(s), sem bloquear a apuração</summary><ul>{matrixIssues.map((issue,i)=><li key={i}>{issue.employeeName} · {dayText(issue.date)} · {issue.message}</li>)}</ul></details>}
         <div className="time-matrix-search">
-          <label htmlFor="time-matrix-filter">Buscar nos registros</label>
+          <label htmlFor="time-matrix-filter">Buscar nos registros</label><select aria-label="Situação da matriz" value={matrixFilter} onChange={e=>applyMatrixFilter(e.target.value as MatrixFilter)}><option value="all">Todas as fichas</option><option value="open">Abertas</option><option value="closed">Fechadas</option><option value="issues">Com avisos</option><option value="changed">Alterações pendentes</option></select>
           <input id="time-matrix-filter" placeholder="Funcionário ou data" aria-label="Buscar na matriz" value={filter} onChange={e=>{setFilter(e.target.value);setPage(0);}}/>
-          <span>{matrixRows.length} registro(s) nesta seleção · {matrixSummary.suggested} sugestão(ões) pendentes na equipe</span>
+          <span>{matrixFilter==='changed'?matrixRows.length+' dias alterados':matrixInfo.total+' funcionário(s) na seleção'} · {matrixSummary.suggested} sugestão(ões) pendentes na equipe</span>
         </div>
+        {!matrixReady&&matrixFilter!=='changed'&&<p role="status">Carregando página da matriz…</p>}
         <div className="table-scroll time-table"><table className="data-table"><thead><tr>
           <th>Funcionário</th><th>Data</th><th>Tipo</th><th>Entrada</th><th>Saída almoço</th><th>Retorno</th><th>Saída</th><th>Horas reais</th><th>Observações</th><th>Origem</th><th>Conferência</th>
         </tr></thead><tbody>{visibleMatrixRows.map((row,index)=>{
           const day=matrixDrafts[row.key]||row.day;
-          const locked=matrix.find(s=>s.employeeId===row.employeeId)?.status==='closed';
+          const locked=matrixByEmployee.get(row.employeeId)?.status==='closed';
           const rowHasIssues=matrixIssueKeys.has(row.key);
           const visualStatus=pointRowStatus(day.source,rowHasIssues);
           return <tr key={row.key} className={[day.source==='suggested'?'time-suggested':'',rowHasIssues?'time-row-issue':''].filter(Boolean).join(' ')}>
             <td>{row.employeeName}</td><td>{dayText(day.date)}</td>
-            <td><select disabled={busy||locked} value={day.kind} aria-label={'Tipo '+row.key}
+            <td><select disabled={readOnly||busy||locked} value={day.kind} aria-label={'Tipo '+row.key}
               onChange={e=>matrixEdit(row.key,row.day,{kind:e.target.value as PointDay['kind']})}>
               {Object.entries(kindLabels).map(([k,label])=><option key={k} value={k}>{label}</option>)}</select></td>
-            {fields.map((field,f)=> <td key={field}><input type="time" value={day[field]} disabled={busy||locked||day.kind!=='work'}
+            {fields.map((field,f)=> <td key={field}><input type="time" value={day[field]} disabled={readOnly||busy||locked||day.kind!=='work'}
               aria-label={timeLabel[field]+' '+row.key} onChange={e=>matrixEdit(row.key,row.day,{[field]:e.target.value})}
               onPaste={event=>{const text=event.clipboardData.getData('text/plain');if(text.includes('\t')||text.includes('\n')){event.preventDefault();pasteMatrix(text,index,f);}}}/></td>)}
             <td>{actualHours(day)}</td>
-            <td><input value={day.notes} disabled={busy||locked} maxLength={500} aria-label={'Observações '+row.key}
+            <td><input value={day.notes} disabled={readOnly||busy||locked} maxLength={500} aria-label={'Observações '+row.key}
               onChange={e=>matrixEdit(row.key,row.day,{notes:e.target.value})}/></td>
             <td><span className={'time-origin time-origin-'+day.source}>{pointSourceLabel(day.source)}</span></td>
             <td><span className={'time-state time-state-'+visualStatus.tone}>{visualStatus.label}</span></td>
           </tr>;
         })}</tbody></table></div>
-        <div className="time-pagination"><span>{matrixRows.length} dias · Página {page+1} de {Math.max(1,Math.ceil(matrixRows.length/100))}</span>
+        <div className="time-pagination"><span>{visibleMatrixRows.length} dias nesta página · Página {page+1} de {matrixPageTotal}</span>
           <button className="btn btn-secondary" disabled={page===0} onClick={()=>setPage(p=>p-1)}>Anterior</button>
-          <button className="btn btn-secondary" disabled={(page+1)*100>=matrixRows.length} onClick={()=>setPage(p=>p+1)}>Próxima</button></div>
+          <button className="btn btn-secondary" disabled={page+1>=matrixPageTotal||(matrixFilter!=='changed'&&!matrixReady)} onClick={()=>setPage(p=>p+1)}>Próxima</button></div>
       </section>}
 
       {view==='reports'&&<section className="card time-sheet">
         <div className="time-actions"><h2>Relatórios de ponto e indicadores</h2>
-          <button className="btn btn-secondary" disabled={busy||!matrix.length} onClick={()=>void run(async()=>{await window.holerites.exportTimeReport({companyId,competence});})}>Exportar indicadores CSV</button>
+          <button className="btn btn-secondary" disabled={busy||!matrixSummary.total} onClick={()=>void run(async()=>{await window.holerites.exportTimeReport({companyId,competence,employeeIds:reportEmployeeIds});})}>Exportar indicadores CSV</button>
         </div>
         <p>Indicadores calculados a partir das fichas salvas. Horários apenas sugeridos não entram na apuração; avisos não bloqueiam o trabalho.</p>
-        <input value={reportFilter} onChange={e=>setReportFilter(e.target.value)} aria-label="Filtrar relatórios" placeholder="Filtrar por funcionário, obra, setor ou centro de custo"/>
-        <div className="time-status"><span>{reportRows.length} funcionário(s) · {reportRows.reduce((v,s)=>v+s.summary.absences,0)} falta(s) · {matrixIssues.length} aviso(s)</span>
-          <small>Trabalhadas {duration(reportRows.reduce((v,s)=>v+s.summary.workedMinutes,0))} | Extras {duration(reportRows.reduce((v,s)=>v+s.summary.overtimeMinutes,0))} | Atrasos {duration(reportRows.reduce((v,s)=>v+s.summary.lateMinutes,0))}</small></div>
+        <input value={reportFilter} onChange={e=>{setReportFilter(e.target.value);setReportPage(0);}} disabled={busy} aria-label="Filtrar relatórios" placeholder="Filtrar por funcionário, obra, setor ou centro de custo"/>
+        <button className="btn btn-secondary" disabled={busy} onClick={()=>void run(async()=>{setReportTotals(await window.holerites.getTimeReportTotals({companyId,competence,employeeIds:reportEmployeeIds}));})}>Calcular totais de toda a seleção</button>
+        {reportTotals&&<div className="time-status"><span>Total da seleção: {reportTotals.employees} funcionário(s) · {reportTotals.absences} falta(s) · {reportTotals.issues} aviso(s)</span><small>Trabalhadas {duration(reportTotals.workedMinutes)} | Extras {duration(reportTotals.overtimeMinutes)} | Atrasos {duration(reportTotals.lateMinutes)} | Noturnas {duration(reportTotals.nightMinutes)}</small></div>}
+        <div className="time-status"><span>{matrixInfo.total} funcionário(s) no filtro · Nesta página:  {reportRows.reduce((v,s)=>v+s.summary.absences,0)} falta(s) · {matrixIssues.length} aviso(s)</span>
+          <small>Totais da página: Trabalhadas {duration(reportRows.reduce((v,s)=>v+s.summary.workedMinutes,0))} | Extras {duration(reportRows.reduce((v,s)=>v+s.summary.overtimeMinutes,0))} | Atrasos {duration(reportRows.reduce((v,s)=>v+s.summary.lateMinutes,0))}</small></div>
         <div className="table-scroll time-table"><table className="data-table"><thead><tr><th>Funcionário</th><th>Setor</th><th>Obra</th><th>Centro de custo</th><th>Trabalhadas</th><th>Extras</th><th>Noturnas</th><th>Atrasos</th><th>Faltas</th><th>Status</th></tr></thead>
-          <tbody>{reportRows.map(s=>{const employee=activeEmployees.find(e=>e.id===s.employeeId);return <tr key={s.employeeId}><td>{s.employeeName}</td><td>{employee?.sector||'—'}</td><td>{employee?.jobSite||'—'}</td><td>{employee?.costCenter||'—'}</td><td>{duration(s.summary.workedMinutes)}</td><td>{duration(s.summary.overtimeMinutes)}</td><td>{duration(s.summary.nightMinutes)}</td><td>{duration(s.summary.lateMinutes)}</td><td>{s.summary.absences}</td><td>{s.status==='closed'?'Fechado':'Aberto'}</td></tr>;})}</tbody>
-        </table></div>
+          <tbody>{reportRows.map(s=>{const employee=employeeById.get(s.employeeId);return <tr key={s.employeeId}><td><button type="button" className="small-action" onClick={()=>openIndividual(s.employeeId)}>{s.employeeName}</button></td><td>{employee?.sector||'—'}</td><td>{employee?.jobSite||'—'}</td><td>{employee?.costCenter||'—'}</td><td>{duration(s.summary.workedMinutes)}</td><td>{duration(s.summary.overtimeMinutes)}</td><td>{duration(s.summary.nightMinutes)}</td><td>{duration(s.summary.lateMinutes)}</td><td>{s.summary.absences}</td><td>{s.status==='closed'?'Fechado':'Aberto'}</td></tr>;})}</tbody>
+        </table></div><div className="time-pagination"><button disabled={reportPage===0} onClick={()=>setReportPage(p=>p-1)}>Anterior</button><span>Página {reportPage+1} de {Math.max(1,Math.ceil(matrixInfo.total/reportPageSize))}</span><button disabled={!matrixReady||(reportPage+1)*reportPageSize>=matrixInfo.total} onClick={()=>setReportPage(p=>p+1)}>Próxima</button></div>
       </section>}
       {view==='import'&&<section className="card time-sheet">
         <h2>Importar ficha de ponto CSV / Excel</h2>
-        <p>Identifique os funcionários por CPF, matrícula ou nome. Revise o mapeamento antes da gravação. Até 30.000 linhas e 30 MB por arquivo. O mapeamento é reutilizado automaticamente para planilhas com as mesmas colunas.</p>
+        <p>Identifique os funcionários por CPF, matrícula ou nome. Revise o mapeamento antes da gravação. Sem limite fixo de linhas; arquivos de até 30 MB por segurança de memória. O mapeamento é reutilizado automaticamente para planilhas com as mesmas colunas.</p>
         <button className="btn btn-secondary" disabled={busy} onClick={()=>void run(async()=>{
           await window.holerites.exportTimeMatrix({companyId,competence,format:'template'});
         })}>Baixar modelo XLSX</button>
-        <button className="btn btn-primary" disabled={busy} onClick={()=>void run(async()=>{
+        <button className="btn btn-primary" disabled={readOnly||busy} onClick={()=>void run(async()=>{
           const choice=await window.holerites.chooseTimeFile(companyId);
           setImportChoice(choice);setMapping(choice?.suggestedMapping??{});setPreview(null);
         })}>Selecionar arquivo CSV/XLSX</button>
+        <details className="time-audit"><summary>Histórico de importações ({imports.total})</summary><ul>{imports.rows.map((row,i)=><li key={i}>{row.filename} · {row.processed} linhas · {row.created_at}</li>)}</ul><div className="time-pagination"><button type="button" disabled={importPage===0} onClick={()=>setImportPage(p=>p-1)}>Anterior</button><span>Página {importPage+1} de {Math.max(1,Math.ceil(imports.total/50))}</span><button type="button" disabled={(importPage+1)*50>=imports.total} onClick={()=>setImportPage(p=>p+1)}>Próxima</button></div></details>
         {importChoice&&<>
           <p><strong>{importChoice.filename}</strong> · {importChoice.count} linhas</p>
           <div className="time-form-grid">{importFields.map(field=><label key={field.key} className="field">
@@ -423,13 +479,13 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
             </select>
           </label>)}</div>
           <div className="time-actions">
-            <button className="btn btn-secondary" disabled={busy} onClick={()=>void run(async()=>setPreview(await window.holerites.previewTimeFile({token:importChoice.token,mapping})))}>Conferir prévia</button>
+            <button className="btn btn-secondary" disabled={readOnly||busy} onClick={()=>void run(async()=>setPreview(await window.holerites.previewTimeFile({token:importChoice.token,mapping})))}>Conferir prévia</button>
             <label><input type="checkbox" checked={allowReplace} onChange={e=>setAllowReplace(e.target.checked)}/> Substituir marcações reais existentes nas mesmas datas</label>
-            <button className="btn btn-primary" disabled={busy||!preview||preview.errors.length>0||preview.accepted===0}
+            <button className="btn btn-primary" disabled={readOnly||busy||!preview||preview.errors.length>0||preview.accepted===0}
               onClick={()=>void run(async()=>{
                 const result=await window.holerites.commitTimeFile({token:importChoice.token,mapping,allowReplace});
                 setNotice(result.imported+' marcações importadas com sucesso.');
-                setImportChoice(null);setPreview(null);await loadMatrix();if(employeeId)await loadSheet();
+                setImportChoice(null);setPreview(null);setImportPage(0);setImportRevision(v=>v+1);await loadMatrix();if(employeeId)await loadSheet();
               })}>Importar {preview?.accepted||0} linhas</button>
           </div>
           {preview&&<><p>{preview.accepted} válidas · {preview.errors.length} com erro</p>

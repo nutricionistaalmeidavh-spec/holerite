@@ -1,8 +1,8 @@
 import {useEffect,useState} from 'react';
 import type {AuthState,LocalOperator,LocalRole} from '../../electron/access-control';
 
-export function LocalAccessPanel({auth,onChange,onClose,required=false}:{
-  auth:AuthState;onChange:()=>Promise<void>;onClose:()=>void;required?:boolean;
+export function LocalAccessPanel({auth,onChange,onClose,required=false,beforeLogout}:{
+  auth:AuthState;onChange:()=>Promise<void>;onClose:()=>void;required?:boolean;beforeLogout?:()=>boolean;
 }) {
   const [name,setName]=useState('');
   const [pin,setPin]=useState('');
@@ -27,6 +27,7 @@ export function LocalAccessPanel({auth,onChange,onClose,required=false}:{
     finally{setBusy(false);}
   };
   const logout=async()=>{
+    if(beforeLogout&&!beforeLogout())return;
     setError('');setBusy(true);
     try{await window.holerites.logoutLocal();await onChange();onClose();}
     catch(e){setError(String(e));}

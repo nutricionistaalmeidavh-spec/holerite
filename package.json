@@ -1,6 +1,6 @@
 {
   "name": "artisys-holerites",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "private": true,
   "description": "ArtiSys Ponto e Folha — controle de ponto e holerites offline",
   "main": "dist-electron/main.js",
@@ -8,7 +8,7 @@
   "license": "MIT",
   "scripts": {
     "dev": "npm run build:electron && concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron .\"",
-    "build:electron": "esbuild electron/main.ts electron/preload.ts --bundle --platform=node --target=node24 --format=cjs --outdir=dist-electron --external:electron --external:electron-updater --external:exceljs",
+    "build:electron": "esbuild electron/main.ts electron/preload.ts electron/db-worker.ts --bundle --platform=node --target=node24 --format=cjs --outdir=dist-electron --external:electron --external:electron-updater --external:exceljs",
     "typecheck": "tsc --noEmit",
     "build": "npm run typecheck && npm run build:electron && vite build",
     "test": "node --import tsx --test src/shared/*.test.ts electron/*.test.ts src/ui/*.test.tsx",

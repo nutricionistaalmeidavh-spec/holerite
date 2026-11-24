@@ -80,7 +80,8 @@ try {
   page.on('console', message => {
     if (message.type() === 'error') issues.push('Console: ' + message.text());
   });
-  page.on('dialog', dialog => dialog.accept());
+  let rejectDiscard=false;
+  page.on('dialog', dialog => rejectDiscard&&dialog.message().includes('alterações não salvas')?dialog.dismiss():dialog.accept());
   await page.setViewportSize({width:1440,height:960});
   await page.getByText('Comece cadastrando sua empresa').waitFor();
   const menu = page.getByRole('navigation', {name:'Menu principal'});
@@ -150,6 +151,15 @@ try {
 
   await go('Visão geral');
   await screenshot('10-visao-geral', 'Dashboard após cadastros');
+  await page.locator('.metric-grid').getByRole('button',{name:/^Colaboradores ativos/}).click();
+  assert.equal(await page.getByLabel('Somente ativos').isChecked(),true);
+  await go('Visão geral');
+  await page.locator('.metric-grid').getByRole('button',{name:/^Holerites gerados/}).click();
+  assert.match(await page.getByLabel('Competência do histórico').inputValue(),/^20\d{2}-\d{2}$/);
+  await go('Visão geral');
+  await page.locator('.metric-grid').getByRole('button',{name:/^Ponto aguardando fechamento/}).click();
+  await page.getByLabel('Situação da matriz').waitFor();
+  assert.equal(await page.getByLabel('Situação da matriz').inputValue(),'open');
   await go('Holerites e folha');
   await page.locator('input[aria-label="Competência"]').fill('2026-11');
   await screenshot('11-folha-sem-selecao', 'Folha: seleção de documento e colaborador');
@@ -181,6 +191,7 @@ try {
   await screenshot('20-holerite-pago', 'Holerite marcado como pago');
 
   await go('Histórico');
+  await page.getByTitle('Abrir holerite').first().waitFor();
   await screenshot('21-historico', 'Histórico de recibos e ações de exportação');
   await page.getByLabel('Filtrar por tipo de documento').selectOption('monthly');
   await screenshot('22-historico-filtrado', 'Histórico filtrado por salário mensal');
@@ -209,8 +220,47 @@ try {
   await generationDialog.getByRole('button',{name:'Cancelar'}).click();
   await generationDialog.waitFor({state:'hidden'});
   await screenshot('28-ponto-matriz', 'Matriz mensal de ponto da equipe');
+  const note=page.locator('.time-matrix-workspace input[aria-label^="Observações "]').first();
+  await note.fill('Regressão: alteração preservada');
+  rejectDiscard=true;
+  await page.getByRole('tab',{name:'Configurações'}).click();
+  assert.equal(await note.inputValue(),'Regressão: alteração preservada');
+  rejectDiscard=false;
+  await page.getByLabel('Buscar na matriz').fill('ZZZ sem correspondência');
+  await page.getByRole('button',{name:'Salvar 1 dia(s)'}).click();
+  await page.getByText('1 dia(s) atualizados na matriz.').waitFor();
+  await page.getByLabel('Buscar na matriz').fill('');
+  await note.waitFor();
+  assert.equal(await note.inputValue(),'Regressão: alteração preservada');
   await page.getByRole('tab', {name:'Importar planilha'}).click();
   await screenshot('29-ponto-importacao', 'Importação de ponto CSV/XLSX e modelo gratuito');
+
+  // Seed synthetic staff in the isolated QA profile, then verify real page transitions.
+  await page.evaluate(async()=>{
+    const api=window.holerites;const state=await api.snapshot();const companyId=state.companies[0].id;
+    for(let i=0;i<6;i++)await api.saveEmployee({companyId,name:'Pessoa QA '+i,cpf:'',role:'Auxiliar',admissionDate:'2025-01-01',salaryCents:300000,dependents:0,active:true});
+  });
+  await go('Visão geral');
+  // Reload after direct fixture changes; keep the same isolated SQLite file.
+  await page.reload();await page.getByRole('heading',{name:'Visão geral',exact:true}).waitFor();
+  await page.locator('.metric-grid').getByRole('button',{name:/^Ponto aguardando fechamento/}).click();
+  await page.getByRole('button',{name:'Criar calendários da equipe'}).click();
+  await generationDialog.getByRole('button',{name:'Gerar sem incluir'}).click();
+  const firstNote=page.locator('.time-matrix-workspace input[aria-label^="Observações "]').first();
+  await firstNote.waitFor();const firstLabel=await firstNote.getAttribute('aria-label');
+  await firstNote.fill('Edição da primeira página');
+  await page.locator('.time-matrix-workspace .time-pagination').last().getByRole('button',{name:'Próxima'}).click();
+  await page.waitForFunction(label=>{const row=document.querySelector('.time-matrix-workspace input[aria-label^="Observações "]');return !!row&&row.getAttribute('aria-label')!==label;},firstLabel);
+  const nextNote=page.locator('.time-matrix-workspace input[aria-label^="Observações "]').first();
+  await nextNote.fill('Edição da segunda página');
+  await page.getByRole('button',{name:'Salvar 2 dia(s)'}).click();
+  await page.getByText('2 dia(s) atualizados na matriz.').waitFor();
+  await page.locator('.time-matrix-workspace .time-pagination').last().getByRole('button',{name:'Anterior'}).click();
+  await page.getByLabel(firstLabel,{exact:true}).waitFor();
+  assert.equal(await page.getByLabel(firstLabel,{exact:true}).inputValue(),'Edição da primeira página');
+  await page.locator('.time-matrix-workspace .time-pagination').last().getByRole('button',{name:'Próxima'}).click();
+  await page.waitForFunction(label=>{const row=document.querySelector('.time-matrix-workspace input[aria-label^="Observações "]');return !!row&&row.getAttribute('aria-label')!==label;},firstLabel);
+  assert.equal(await nextNote.inputValue(),'Edição da segunda página');
     await page.setViewportSize({width:1024,height:768});
   for (const [label, name] of [
     ['Visão geral', '30-compacto-dashboard'],

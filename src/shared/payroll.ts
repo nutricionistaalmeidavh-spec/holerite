@@ -61,7 +61,7 @@ export function calculatePayroll(input: {
   if (!Number.isInteger(dependents) || dependents < 0 || dependents > 30) throw new Error('Quantidade de dependentes inválida.');
   if (taxMode !== 'automatic' && taxMode !== 'manual') throw new Error('Modo de cálculo inválido.');
   if (taxMode === 'automatic' && !competence.startsWith('2026-')) throw new Error('Cálculo automático disponível apenas para competências de 2026. Para outra competência, utilize o modo manual.');
-  if (!Array.isArray(entries) || entries.length > 100) throw new Error('Máximo de 100 lançamentos por holerite.');
+  if (!Array.isArray(entries)) throw new Error('Lançamentos inválidos.');
 
   const ids = new Set<string>();
   const validated = entries.map(item => {

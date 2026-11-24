@@ -117,7 +117,7 @@ export function calculateSpecialPayroll(input:SpecialInput):SpecialResult {
   if(taxMode==='automatic'&&!competence.startsWith('2026-'))throw new Error('Cálculo automático disponível apenas para 2026.');
   whole(dependents,0,30,'Dependentes');
   parseDate(admissionDate);
-  if(!options||typeof options!=='object'||!Array.isArray(entries)||entries.length>100)throw new Error('Opções ou lançamentos inválidos.');
+  if(!options||typeof options!=='object'||!Array.isArray(entries))throw new Error('Opções ou lançamentos inválidos.');
 
   let generated:PayItem[]=[];
   let fgtsPenaltyCents=0;

@@ -153,6 +153,9 @@ export interface HoleriteAPI {
   getLocalOperators():Promise<LocalOperator[]>;
   addLocalOperator(input:{name:string;pin:string;role:LocalRole}):Promise<LocalOperator>;
   snapshot(): Promise<StateSnapshot>;
+  workspace(input:{companyId:string;competence:string}):Promise<StateSnapshot>;
+  payrollPage(input:import('./workspace-scope').PayrollScope&{page:number;pageSize:number}):Promise<{rows:PayrollRecord[];total:number}>;
+  getTimeOverview(input:{companyId:string;competence:string}):Promise<{total:number;closed:number}>;
   saveCompany(input: CompanyInput & {id?: string}): Promise<Company>;
   saveEmployee(input: EmployeeInput & {id?: string}): Promise<Employee>;
   generateMonthlyBatch(input:MonthlyBatchInput):Promise<MonthlyBatchResult>;
@@ -161,16 +164,22 @@ export interface HoleriteAPI {
   markPaid(id: string): Promise<PayrollRecord>;
   deleteDraft(id: string): Promise<void>;
   exportPDF(id: string): Promise<boolean>;
-  print(id: string): Promise<void>;
+  print(id: string): Promise<boolean>;
   exportBackup(): Promise<boolean>;
-  exportCSV(): Promise<boolean>;
+  exportCSV(input:import('./workspace-scope').PayrollScope): Promise<boolean>;
   getTimeConfig(companyId:string):Promise<TimeConfig>;
   setTimeConfig(input:{companyId:string;config:TimeConfig}):Promise<TimeConfig>;
   getTimeSchedule(employeeId:string):Promise<WorkSchedule>;
   setTimeSchedule(input:{employeeId:string;schedule:WorkSchedule}):Promise<WorkSchedule>;
   getTimeSheet(input:{employeeId:string;competence:string}):Promise<TimeSheet>;
+  getTimeReportTotals(input:{companyId:string;competence:string;employeeIds:string[]}):Promise<{employees:number;absences:number;issues:number;workedMinutes:number;overtimeMinutes:number;lateMinutes:number;nightMinutes:number}>;
+  getTimeMatrixPage(input:import('../../electron/attendance').MatrixPageInput):Promise<import('../../electron/attendance').MatrixPageResult>;
+  generateTimeTeam(input:{companyId:string;competence:string;include:boolean}):Promise<{reviewed:number;employees:number}>;
+  reviewTimeTeam(input:{companyId:string;competence:string}):Promise<{reviewed:number;employees:number}>;
   getTimeMatrix(input:{companyId:string;competence:string}):Promise<Array<TimeSheet&{employeeName:string}>>;
   getTimeAudit(input:{employeeId:string;competence:string}):Promise<Array<{date:string|null;action:string;reason:string;created_at:string;actor_name?:string}>>;
+  getTimeAuditPage(input:{employeeId:string;competence:string;page:number;pageSize?:number}):Promise<{rows:Array<{date:string|null;action:string;reason:string;created_at:string;actor_name?:string}>;total:number}>;
+  getTimeImportPage(input:{companyId:string;page:number;pageSize?:number}):Promise<{rows:Array<{filename:string;processed:number;created_at:string}>;total:number}>;
   autofillTimeSheet(input:{employeeId:string;competence:string}):Promise<TimeSheet>;
   reviewTimeSuggestions(input:{employeeIds:string[];competence:string}):Promise<{reviewed:number;employees:number}>;
   saveTimeMatrix(input:{changes:MatrixChange[];overwriteImported?:boolean}):Promise<number>;
@@ -189,7 +198,7 @@ export interface HoleriteAPI {
   addTimeAttachment(input:{employeeId:string;date:string}):Promise<PointAttachment|null>;
   saveTimeAttachment(input:{employeeId:string;id:string}):Promise<boolean>;
   removeTimeAttachment(input:{employeeId:string;id:string}):Promise<void>;
-  exportTimeReport(input:{companyId:string;competence:string}):Promise<boolean>;
+  exportTimeReport(input:{companyId:string;competence:string;employeeIds?:string[]}):Promise<boolean>;
   exportTimeBatchPDF(input:{companyId:string;competence:string;employeeIds:string[]}):Promise<boolean>;
   printTimeBatch(input:{companyId:string;competence:string;employeeIds:string[]}):Promise<boolean>;
 

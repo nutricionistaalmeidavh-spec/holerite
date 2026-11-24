@@ -74,3 +74,21 @@ test('importa planilha com mais de 500 linhas como um lote e reutiliza mapeament
     assert.deepEqual(again.suggestedMapping,chosen.suggestedMapping);
   }finally{db.close();rmSync(dir,{recursive:true,force:true});}
 });
+
+test('import keeps columns beyond the former 50-column cutoff',async()=>{
+  const dir=mkdtempSync(join(tmpdir(),'time-import-wide-'));
+  const db=new HoleriteDatabase(':memory:');
+  try{
+    const company=db.saveCompany({legalName:'Equipe',tradeName:'',cnpj:'',address:''});
+    db.saveEmployee({companyId:company.id,name:'Pessoa',cpf:'12345678909',role:'Auxiliar',admissionDate:'2025-01-01',salaryCents:300000,dependents:0,active:true});
+    const book=new ExcelJS.Workbook(),sheet=book.addWorksheet('Ponto');
+    const filler=Array.from({length:51},(_,i)=>'Campo '+i);
+    sheet.addRow([...filler,'CPF','Data','Entrada','Saída almoço','Volta almoço','Saída']);
+    sheet.addRow([...filler.map(()=>''),'12345678909','05/11/2026','08:00','12:00','13:00','17:00']);
+    const file=join(dir,'wide.xlsx');await book.xlsx.writeFile(file);
+    const importer=new TimeImporter(db.attendance,id=>db.listEmployees(id));
+    const chosen=await importer.choose(company.id,file);
+    assert.equal(chosen.headers.length,57);
+    assert.equal(importer.commit(chosen.token,chosen.suggestedMapping).imported,1);
+  }finally{db.close();rmSync(dir,{recursive:true,force:true});}
+});

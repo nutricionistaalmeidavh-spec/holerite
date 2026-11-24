@@ -1,10 +1,12 @@
-import {useEffect, useMemo, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 import type {Company, CompanyInput, Employee, EmployeeInput, MonthlyBatchResult, PayItem, PayrollInput, PayrollRecord, StateSnapshot, TaxMode} from './shared/types';
 import {calculateSpecialPayroll,calculateThirteenthMonths} from './shared/special';
 import type {PayrollKind, SpecialOptions, VacationOptions, ThirteenthOptions, TerminationOptions} from './shared/special';
 import {calculatePayroll, money} from './shared/payroll';
 import {PayrollKindTabs,PAYROLL_KIND_LABELS} from './ui/PayrollKindTabs';
-import {TimeControlPage} from './ui/TimeControlPage';
+import {TimeControlPage,type TimeView,type MatrixFilter} from './ui/TimeControlPage';
+import {operationCompleted} from './shared/workspace-scope';
+import appPackage from '../package.json';
 import {LocalAccessPanel} from './ui/LocalAccessPanel';
 import type {AuthState} from '../electron/access-control';
 
@@ -94,7 +96,7 @@ function EmployeeForm({initial,companies,companyId,onSave,onClose,busy}: {initia
     <Field label="Situação"><select value={String(v.active)} onChange={e=>change('active',e.target.value==='true')}><option value="true">Ativo</option><option value="false">Inativo</option></select></Field>
     <section className="employee-recurring">
       <div className="section-bar"><div><h3>Verbas mensais recorrentes</h3><p>Adicionais e descontos pré-preenchidos nos novos holerites mensais. Não se aplicam automaticamente a férias, 13º ou rescisão.</p></div>
-        <Button variant="secondary" icon="plus" disabled={busy||recurringEntries.length>=100} onClick={()=>setRecurringEntries(items=>[...items,blankEntry()])}>Adicionar verba</Button>
+        <Button variant="secondary" icon="plus" disabled={busy} onClick={()=>setRecurringEntries(items=>[...items,blankEntry()])}>Adicionar verba</Button>
       </div>
       {recurringEntries.length===0?<p className="no-recurring">Nenhuma verba recorrente cadastrada.</p>:<div className="entries">{recurringEntries.map(item=><div className="entry-row" key={item.id}>
         <div className="entry-grid">
@@ -159,9 +161,9 @@ function SpecialFields({kind,options,onChange,disabled}:{
   return null;
 }
 
-function PayrollEditor({employee,competence,kind,defaultAdvanceCents,existing,busy,onSave,onFinalize,onPaid,onDelete,onPDF,onPrint}:{
-  employee:Employee; competence:string;kind:PayrollKind;defaultAdvanceCents:number; existing?:PayrollRecord;busy:boolean;
-  onSave:(x:PayrollInput)=>void;
+function PayrollEditor({employee,competence,kind,defaultAdvanceCents,existing,busy,readOnly,onDirtyChange,onSave,onFinalize,onPaid,onDelete,onPDF,onPrint}:{
+  employee:Employee; competence:string;kind:PayrollKind;defaultAdvanceCents:number; existing?:PayrollRecord;busy:boolean;readOnly:boolean;onDirtyChange:(dirty:boolean)=>void;
+  onSave:(x:PayrollInput)=>Promise<boolean>;
   onFinalize:()=>void;onPaid:()=>void;onDelete:()=>void;onPDF:()=>void;onPrint:()=>void;
 }) {
   const savedSalary=existing?.details.salaryCents??employee.salaryCents;
@@ -170,13 +172,18 @@ function PayrollEditor({employee,competence,kind,defaultAdvanceCents,existing,bu
   const [entries,setEntries]=useState<PayItem[]>(existing?.details.items.filter(i=>!i.id.startsWith('generated:')&&!['SAL','INSS','IRRF'].includes(i.code))??(kind==='monthly'?(employee.recurringEntries??[]):[]));
   const [specialOptions,setSpecialOptions]=useState<SpecialOptions>(existing?.details.options??initialOptions(kind,competence,employee,defaultAdvanceCents));
   const locked=!!existing&&existing.status!=='draft';
+  const fingerprint=JSON.stringify({salaryText,taxMode,entries,specialOptions});
+  const [savedFingerprint,setSavedFingerprint]=useState(fingerprint);
+  const dirty=!locked&&!readOnly&&fingerprint!==savedFingerprint;
+  useEffect(()=>{onDirtyChange(dirty);},[dirty,onDirtyChange]);
+  useEffect(()=>()=>onDirtyChange(false),[onDirtyChange]);
   const modify=(id:string, patch:Partial<PayItem>)=>setEntries(s=>s.map(x=>x.id===id?{...x,...patch}:x));
   const calculation=useMemo(()=>{try {const salaryCents=toCents(salaryText);return {result:kind==='monthly'?calculatePayroll({salaryCents,competence,dependents:employee.dependents,taxMode,entries}):calculateSpecialPayroll({salaryCents,competence,admissionDate:employee.admissionDate,dependents:employee.dependents,taxMode,entries,kind,options:specialOptions}),error:null as string|null};}catch(error){return {result:null,error:(error as Error).message};}},[salaryText,competence,employee.admissionDate,employee.dependents,taxMode,entries,kind,specialOptions]);
   const preview=locked?existing.details:calculation.result;
   return <div className="editor">
     <div className="editor-header"><div><div className="eyebrow">{payrollKindLabels[kind].toUpperCase()} · {brDate(competence)}</div><h2>{employee.name}</h2><p>{employee.role} · {money(employee.salaryCents)} de salário cadastrado</p></div>{existing&&<Status status={existing.status}/>}</div>
     <div className="editor-stepper" aria-label="Etapas da preparação"><span><b>01</b> Conferir parâmetros</span><span><b>02</b> Revisar rubricas</span><span><b>03</b> Salvar e emitir</span></div>
-    <div className="editor-layout"><div className="editor-form-panel"><div className="edit-settings">
+    <div className="editor-layout"><div className="editor-form-panel"><fieldset className="settings-fieldset" disabled={readOnly||busy}><div className="edit-settings">
       <Field label="Salário-base desta competência (R$)" hint="Pode ser ajustado sem alterar o cadastro do funcionário."><input type="number" step="0.01" min="0.01" value={salaryText} disabled={locked} onChange={e=>setSalaryText(e.target.value)}/></Field>
       <Field label="Apuração de INSS e IRRF" hint="Automático disponível para competências de 2026."><select disabled={locked} value={taxMode} onChange={e=>setTaxMode(e.target.value as TaxMode)}><option value="automatic" disabled={!competence.startsWith('2026-')}>Automática · tabelas 2026</option><option value="manual">Manual · sem cálculo de impostos</option></select></Field>
     </div>
@@ -197,12 +204,12 @@ function PayrollEditor({employee,competence,kind,defaultAdvanceCents,existing,bu
     {calculation.error&&!locked&&<div className="error-inline">{calculation.error}</div>}
     {preview && 'warnings' in preview && Array.isArray(preview.warnings) && preview.warnings.map((w,i)=><p key={i} className="special-hint">{String(w)}</p>)}
     {taxMode==='manual'&&!locked&&<p className="notice">No modo manual, o sistema não calcula nem insere INSS/IRRF. Cadastre os descontos aplicáveis como lançamentos e confira com o responsável pela folha.</p>}
-    <div className="editor-actions">
-      {!locked&&<Button icon="check" disabled={busy||!!calculation.error} onClick={()=>onSave({id:existing?.id,employeeId:employee.id,competence,kind,options:kind==='monthly'?undefined:specialOptions,entries,salaryOverrideCents:toCents(salaryText),taxMode})}>{existing?'Salvar alterações':'Salvar rascunho'}</Button>}
-      {existing?.status==='draft'&&<Button variant="secondary" icon="check" disabled={busy} onClick={onFinalize}>Finalizar</Button>}
-      {existing?.status==='finalized'&&<Button variant="secondary" icon="check" disabled={busy} onClick={onPaid}>Marcar como pago</Button>}
-      {existing&&<><Button variant="secondary" icon="download" disabled={busy} onClick={onPDF}>Gerar PDF</Button><Button variant="secondary" icon="print" disabled={busy} onClick={onPrint}>Imprimir</Button></>}
-      {existing?.status==='draft'&&<Button variant="danger" icon="trash" disabled={busy} onClick={onDelete}>Excluir rascunho</Button>}
+    </fieldset><div className="editor-actions">
+      {!locked&&!readOnly&&<Button icon="check" disabled={busy||!!calculation.error} onClick={()=>{void onSave({id:existing?.id,employeeId:employee.id,competence,kind,options:kind==='monthly'?undefined:specialOptions,entries,salaryOverrideCents:toCents(salaryText),taxMode}).then(ok=>{if(ok)setSavedFingerprint(fingerprint);});}}>{existing?'Salvar alterações':'Salvar rascunho'}</Button>}
+      {existing?.status==='draft'&&!readOnly&&<Button variant="secondary" icon="check" disabled={busy||dirty} onClick={onFinalize}>Finalizar</Button>}
+      {existing?.status==='finalized'&&!readOnly&&<Button variant="secondary" icon="check" disabled={busy} onClick={onPaid}>Marcar como pago</Button>}
+      {existing&&<><Button variant="secondary" icon="download" disabled={busy||dirty} onClick={onPDF}>Gerar PDF</Button><Button variant="secondary" icon="print" disabled={busy||dirty} onClick={onPrint}>Imprimir</Button></>}
+      {existing?.status==='draft'&&!readOnly&&<Button variant="danger" icon="trash" disabled={busy} onClick={onDelete}>Excluir rascunho</Button>}
     </div>
     {existing?.status==='draft'&&<p className="subtle-note">Salve todas as alterações antes de finalizar. Holerites finalizados ficam bloqueados para preservar o histórico.</p>}
     </div><aside className="editor-summary" aria-label="Resumo financeiro">
@@ -225,6 +232,16 @@ function App() {
   const [error,setError]=useState('');
   const [toast,setToast]=useState('');
   const [tab,setTab]=useState<Tab>('dashboard');
+  const [dirty,setDirty]=useState(false);
+  const [childBusy,setChildBusy]=useState(false);
+  const [timeView,setTimeView]=useState<TimeView>('individual');
+  const [timeFilter,setTimeFilter]=useState<MatrixFilter>('all');
+  const [timeKey,setTimeKey]=useState(0);
+  const [activeOnly,setActiveOnly]=useState(false);
+  const [historyMonth,setHistoryMonth]=useState('');
+  const [historyStatus,setHistoryStatus]=useState('all');
+  const [operatorMenu,setOperatorMenu]=useState(false);
+  const readOnly=auth?.operator?.role==='viewer';
   const [modal,setModal]=useState<Modal>(null);
   const [editingCompany,setEditingCompany]=useState<Company|undefined>();
   const [editingEmployee,setEditingEmployee]=useState<Employee|undefined>();
@@ -236,7 +253,27 @@ function App() {
   const [historyKind,setHistoryKind]=useState<'all'|PayrollKind>('all');
   const [sidebarOpen,setSidebarOpen]=useState(false);
   const [pointOverview,setPointOverview]=useState<{total:number;closed:number}|null>(null);
-  const reload=async()=>{const snapshot=await window.holerites.snapshot();setData(snapshot);setCompanyId(id=>snapshot.companies.some(c=>c.id===id)?id:(snapshot.companies[0]?.id??''));};
+  const [workspaceKey,setWorkspaceKey]=useState('');
+  const [revision,setRevision]=useState(0);
+  const requestId=useRef(0);
+  const context=useRef({companyId,competence});context.current={companyId,competence};
+  const reload=async()=>{
+    const {companyId:requested,competence:month}=context.current;
+    const request=++requestId.current;
+    const snapshot=await window.holerites.workspace({companyId:requested,competence:month});
+    if(request!==requestId.current||context.current.companyId!==requested||context.current.competence!==month)return;
+    const selected=snapshot.companies.some(c=>c.id===requested)?requested:(snapshot.companies[0]?.id??'');
+    setData(snapshot);setWorkspaceKey(selected+'|'+month);setCompanyId(selected);setRevision(v=>v+1);
+  };
+  const readyContext=workspaceKey===companyId+'|'+competence;
+  useEffect(()=>{if(auth&&(!auth.configured||auth.operator)&&!readyContext)void reload().catch(e=>setError(String(e)));},[companyId,competence,auth,readyContext]);
+  const [historyPage,setHistoryPage]=useState(0);
+  const [historyResult,setHistoryResult]=useState<{rows:PayrollRecord[];total:number}>({rows:[],total:0});
+  const [historyLoading,setHistoryLoading]=useState(false);
+  const [historyResultKey,setHistoryResultKey]=useState('');
+  const [employeePage,setEmployeePage]=useState(0);
+  const [railPage,setRailPage]=useState(0);
+  const pageSize=100;
   useEffect(()=>{void (async()=>{
     try{
       const state=await window.holerites.getAuthState();
@@ -250,7 +287,7 @@ function App() {
     setAuth(state);
     if(!state.configured||state.operator)await reload();
   };
-  async function act(task:()=>Promise<unknown>,message?:string|((result:unknown)=>string)) {setBusy(true);setError('');setToast('');try{const result=await task();await reload();if(message)setToast(typeof message==='function'?message(result):message);}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setBusy(false);}}
+  async function act(task:()=>Promise<unknown>,message?:string|((result:unknown)=>string)):Promise<boolean> {setBusy(true);setError('');setToast('');try{const result=await task();if(!operationCompleted(result))return false;await reload();if(message)setToast(typeof message==='function'?message(result):message);return true;}catch(e){setError(e instanceof Error?e.message:String(e));return false;}finally{setBusy(false);}}
   const employees=useMemo(()=>data.employees.filter(e=>!companyId||e.companyId===companyId),[data.employees,companyId]);
   const payrolls=useMemo(()=>data.payrolls.filter(p=>!companyId||p.companyId===companyId),[data.payrolls,companyId]);
   const currentPayrolls=payrolls.filter(p=>p.competence===competence);
@@ -259,25 +296,53 @@ function App() {
     if(tab!=='dashboard'||!companyId){setPointOverview(null);return;}
     let active=true;
     setPointOverview(null);
-    window.holerites.getTimeMatrix({companyId,competence}).then(rows=>{
-      if(active)setPointOverview({total:rows.length,closed:rows.filter(row=>row.status==='closed').length});
+    window.holerites.getTimeOverview({companyId,competence}).then(summary=>{
+      if(active)setPointOverview(summary);
     }).catch(()=>{if(active)setPointOverview(null);});
     return ()=>{active=false;};
-  },[tab,companyId,competence]);
+  },[tab,companyId,competence,revision]);
   const selectedEmployee=employees.find(e=>e.id===selectedEmployeeId);
   const existing=selectedEmployee&&data.payrolls.find(p=>p.employeeId===selectedEmployee.id&&p.competence===competence&&p.kind===payrollKind);
   const filtered=search.trim().toLowerCase();
-  const navigate=(to:Tab)=>{setTab(to);setSearch('');setSidebarOpen(false);};
-  const startKind=(kind:PayrollKind)=>{setPayrollKind(kind);navigate('payroll');};
+  const mayLeave=()=>!busy&&!childBusy&&(!dirty||window.confirm('Há alterações não salvas. Deseja descartá-las? Cancelar mantém a edição atual.'));
+  useEffect(()=>{if(!dirty)return;const prevent=(event:BeforeUnloadEvent)=>{event.preventDefault();event.returnValue='';};window.addEventListener('beforeunload',prevent);return ()=>window.removeEventListener('beforeunload',prevent);},[dirty]);
+  const go=(to:Tab)=>{setTab(to);setSearch('');setSidebarOpen(false);setDirty(false);};
+  const navigate=(to:Tab)=>{if(to===tab){setSidebarOpen(false);return;}if(!mayLeave())return;setActiveOnly(false);setHistoryMonth('');setHistoryStatus('all');setHistoryKind('all');if(to==='time'){setTimeView('individual');setTimeFilter('all');setSelectedEmployeeId('');setTimeKey(k=>k+1);}go(to);};
+  const openTime=(view:TimeView='individual',filter:MatrixFilter='all',id='')=>{if(!mayLeave())return;setTimeView(view);setTimeFilter(filter);setSelectedEmployeeId(id);setTimeKey(k=>k+1);go('time');};
+  const openHistory=(status='all')=>{if(!mayLeave())return;setHistoryMonth(competence);setHistoryStatus(status);setHistoryKind('all');go('history');};
+  const openActive=()=>{if(!mayLeave())return;setActiveOnly(true);go('employees');};
+  const startKind=(kind:PayrollKind)=>{if(!mayLeave())return;setPayrollKind(kind);if(tab==='payroll')setDirty(false);go('payroll');};
   const companyName=(id:string)=>data.companies.find(c=>c.id===id)?.tradeName||data.companies.find(c=>c.id===id)?.legalName||'—';
-  const openCompany=(v?:Company)=>{setEditingCompany(v);setModal('company');};
-  const openEmployee=(v?:Employee)=>{setEditingEmployee(v);setModal('employee');};
+  const openCompany=(v?:Company)=>{if(readOnly||busy)return;setEditingCompany(v);setModal('company');};
+  const openEmployee=(v?:Employee)=>{if(readOnly||busy)return;setEditingEmployee(v);setModal('employee');};
   const ask=(text:string)=>window.confirm(text);
-  const monthPicker=<input className="month-input" aria-label="Competência" type="month" value={competence} onChange={e=>{setCompetence(e.target.value);setSelectedEmployeeId('');}}/>;
-  const companyPicker=<select className="company-picker" aria-label="Empresa atual" value={companyId} onChange={e=>{setCompanyId(e.target.value);setSelectedEmployeeId('');}}>{data.companies.map(c=><option key={c.id} value={c.id}>{c.tradeName||c.legalName}</option>)}</select>;
-  const selectEmployee=(id:string)=>{setSelectedEmployeeId(id);setTab('payroll');};
+  const monthPicker=<input className="month-input" aria-label="Competência" type="month" value={competence} onChange={e=>{if(!mayLeave())return;setCompetence(e.target.value);setSelectedEmployeeId('');setDirty(false);setTimeKey(k=>k+1);}}/>;
+  const companyPicker=<select className="company-picker" aria-label="Empresa atual" value={companyId} onChange={e=>{if(!mayLeave())return;setCompanyId(e.target.value);setSelectedEmployeeId('');setDirty(false);setTimeKey(k=>k+1);}}>{data.companies.map(c=><option key={c.id} value={c.id}>{c.tradeName||c.legalName}</option>)}</select>;
+  const openPayroll=(p:PayrollRecord)=>{if(!mayLeave())return;setCompetence(p.competence);setPayrollKind(p.kind??'monthly');setSelectedEmployeeId(p.employeeId);go('payroll');};
+  const historyScope={companyId,competence:historyMonth||undefined,kind:historyKind,status:historyStatus,search};
+  const historyQueryKey=JSON.stringify([companyId,historyMonth,historyKind,historyStatus,search,historyPage,revision]);
+  const historyRows=historyResultKey===historyQueryKey?historyResult.rows:[];
+  useEffect(()=>{setHistoryPage(0);},[companyId,historyMonth,historyKind,historyStatus,search]);
+  useEffect(()=>{setEmployeePage(0);setRailPage(0);},[companyId,competence,search,activeOnly,payrollKind]);
+  useEffect(()=>{
+    if(tab!=='history'||!companyId||!readyContext||!auth||auth.configured&&!auth.operator)return;
+    let active=true;setHistoryLoading(true);
+    const timer=setTimeout(()=>{window.holerites.payrollPage({...historyScope,page:historyPage,pageSize}).then(result=>{
+      if(!active)return;setHistoryResult(result);setHistoryResultKey(historyQueryKey);
+      if(historyPage>0&&historyPage*pageSize>=result.total)setHistoryPage(Math.max(0,Math.ceil(result.total/pageSize)-1));
+    }).catch(e=>{if(active){setHistoryResult({rows:[],total:0});setHistoryResultKey(historyQueryKey);setError(String(e));}}).finally(()=>{if(active)setHistoryLoading(false);});},150);
+    return ()=>{active=false;clearTimeout(timer);};
+  },[tab,companyId,historyMonth,historyKind,historyStatus,search,historyPage,revision,readyContext,auth]);
+  const employeeRows=useMemo(()=>employees.filter(e=>(!activeOnly||e.active)&&(e.name+' '+e.role+' '+e.cpf).toLowerCase().includes(filtered)),[employees,activeOnly,filtered]);
+  const currentByEmployee=useMemo(()=>new Map(currentPayrolls.filter(p=>p.kind===payrollKind).map(p=>[p.employeeId,p])),[currentPayrolls,payrollKind]);
+  const currentEmployeeIds=useMemo(()=>new Set(currentPayrolls.map(p=>p.employeeId)),[currentPayrolls]);
+  const railRows=useMemo(()=>employees.filter(e=>(e.active||currentEmployeeIds.has(e.id))&&(!filtered||(e.name+' '+e.role+' '+e.cpf).toLowerCase().includes(filtered))),[employees,currentEmployeeIds,filtered]);
+  useEffect(()=>{setEmployeePage(p=>Math.min(p,Math.max(0,Math.ceil(employeeRows.length/pageSize)-1)));},[employeeRows.length]);
+  useEffect(()=>{setRailPage(p=>Math.min(p,Math.max(0,Math.ceil(railRows.length/pageSize)-1)));},[railRows.length]);
+  const pageNav=(page:number,total:number,setPage:(n:number)=>void)=><div className="time-pagination"><span>{total} registro(s) · Página {page+1} de {Math.max(1,Math.ceil(total/pageSize))}</span><Button variant="secondary" disabled={page===0} onClick={()=>setPage(page-1)}>Anterior</Button><Button variant="secondary" disabled={(page+1)*pageSize>=total} onClick={()=>setPage(page+1)}>Próxima</Button></div>;
   const title:Record<Tab,string>={dashboard:'Visão geral',payroll:'Folha de pagamento',employees:'Funcionários',companies:'Empresas',history:'Histórico de holerites',time:'Controle de ponto'};
   if(!loading&&auth?.configured&&!auth.operator)return <LocalAccessPanel auth={auth} required onChange={syncAuth} onClose={()=>{}}/>;
+  if(!loading&&!auth)return <div className="loading"><h2>Não foi possível carregar os dados</h2><p role="alert">{error}</p><Button onClick={()=>window.location.reload()}>Tentar novamente</Button></div>;
   if(loading||!auth)return <div className="loading"><div className="brandmark">A</div><h2>ArtiSys Holerites</h2><p>Carregando seus dados locais…</p></div>;
   return <div className="app-shell atlas-executive">
     <aside className={'sidebar '+(sidebarOpen?'sidebar-open':'')} aria-label="Navegação principal">
@@ -291,20 +356,18 @@ function App() {
         ['payroll','Holerites e folha','payroll'],
         ['history','Histórico','history']
       ] as [Tab,string,IconName][]).map(([key,label,icon])=><button type="button" className={'nav-link '+(tab===key?'active':'')} aria-current={tab===key?'page':undefined} onClick={()=>navigate(key)} key={key}><Icon name={icon} size={19}/>{label}</button>)}</nav>
-      <button className="btn btn-secondary" type="button" onClick={()=>setAuthOpen(true)}>
-        {auth.configured?'Perfis locais · '+(auth.operator?.name||''):'Ativar perfis locais'}
-      </button>
       <div className="sidebar-footer"><div className="secure-dot"/><div><b>Banco local</b><span>Seus dados permanecem neste computador.</span></div></div>
     </aside>
     {sidebarOpen&&<button className="sidebar-overlay" onClick={()=>setSidebarOpen(false)} aria-label="Fechar menu"/>}
     <div className="main">
-      <header className="topbar"><div className="topbar-left"><button className="menu-toggle" onClick={()=>setSidebarOpen(true)} aria-label="Abrir menu"><Icon name="menu"/></button><span className="crumb">Workspace</span><span className="crumb-sep">/</span><strong>{title[tab]}</strong></div><div className="topbar-right">{data.companies.length>0&&companyPicker}<div className="avatar" title="ArtiSys Holerites">AS</div></div></header>
+      <header className="topbar"><div className="topbar-left"><button className="menu-toggle" onClick={()=>setSidebarOpen(true)} aria-label="Abrir menu"><Icon name="menu"/></button><span className="crumb">Workspace</span><span className="crumb-sep">/</span><strong>{title[tab]}</strong></div><div className="topbar-right">{data.companies.length>0&&companyPicker}<div className="operator-menu"><button type="button" className="avatar" aria-label="Menu do operador" aria-expanded={operatorMenu} onKeyDown={e=>{if(e.key==='Escape')setOperatorMenu(false);}} onClick={()=>setOperatorMenu(v=>!v)}>{auth.operator?.name.slice(0,2).toUpperCase()||'AS'}</button>{operatorMenu&&<div className="operator-popover" onKeyDown={e=>{if(e.key==='Escape')setOperatorMenu(false);}}><strong>{auth.operator?.name||'Acesso local'}</strong><small>{auth.operator?.role==='admin'?'Administrador':auth.operator?.role==='hr'?'RH':readOnly?'Somente leitura':'Perfis não ativados'}</small><button className="small-action" onClick={()=>{if(busy||childBusy)return;setOperatorMenu(false);setAuthOpen(true);}}>Perfis e acesso</button>{auth.operator&&<button className="small-action" onClick={()=>{if(!mayLeave())return;setOperatorMenu(false);void (async()=>{setBusy(true);try{await window.holerites.logoutLocal();await syncAuth();setDirty(false);}catch(e){setError(String(e));}finally{setBusy(false);}})();}}>Sair do operador</button>}</div>}</div></div></header>
       <main className="page">
-        <div className="page-heading"><div><div className="eyebrow">ARTISYS · GESTÃO DE PESSOAS</div><h1>{title[tab]}</h1><p>{tab==='dashboard'?'Acompanhe o ponto e os comprovantes emitidos.':tab==='payroll'?'Confira e emita holerites quando necessário. A conferência do ponto em lote fica disponível sem bloqueios.':tab==='employees'?'Cadastre a equipe e prepare suas jornadas.':tab==='companies'?'Cadastre empresas para iniciar o controle de ponto.':tab==='time'?'Registre, importe, confira e imprima as jornadas. O holerite é a última etapa, sem bloqueio obrigatório.':'Consulte, imprima e exporte comprovantes já emitidos.'}</p></div><div className="heading-actions">{(tab==='dashboard'||tab==='payroll'||tab==='time')&&monthPicker}{tab==='payroll'&&data.companies.length>0&&<Button variant="secondary" icon="plus" disabled={busy||!employees.some(e=>e.active)} onClick={()=>{if(ask('Gerar holerites em lote para funcionários ativos nesta competência? A conferência do ponto continua disponível, sem bloqueio. Documentos anteriores serão preservados.'+(competence.startsWith('2026-')?'':' Os tributos desta competência serão manuais.')))void act(()=>window.holerites.generateMonthlyBatch({companyId,competence,taxMode:competence.startsWith('2026-')?'automatic':'manual'}),result=>{const summary=result as MonthlyBatchResult;return `Lote concluído: ${summary.created} criado(s) e ${summary.skipped} já existente(s).`;});}}>Gerar mês em lote</Button>}{tab==='dashboard'&&data.companies.length>0&&<Button icon="plus" onClick={()=>navigate('time')}>Preencher ponto</Button>}{tab==='employees'&&<Button icon="plus" disabled={!data.companies.length} onClick={()=>openEmployee()}>Novo funcionário</Button>}{tab==='companies'&&<Button icon="plus" onClick={()=>openCompany()}>Nova empresa</Button>}{tab==='history'&&<Button variant="secondary" icon="download" onClick={()=>void act(()=>window.holerites.exportCSV(),'Relatório CSV exportado.')}>Exportar CSV</Button>}</div></div>
+        <div className="page-heading"><div><div className="eyebrow">ARTISYS · GESTÃO DE PESSOAS</div><h1>{title[tab]}</h1><p>{tab==='dashboard'?'Acompanhe o ponto e os comprovantes emitidos.':tab==='payroll'?'Confira e emita holerites quando necessário. A conferência do ponto em lote fica disponível sem bloqueios.':tab==='employees'?'Cadastre a equipe e prepare suas jornadas.':tab==='companies'?'Cadastre empresas para iniciar o controle de ponto.':tab==='time'?'Registre, importe, confira e imprima as jornadas. O holerite é a última etapa, sem bloqueio obrigatório.':'Consulte, imprima e exporte comprovantes já emitidos.'}</p></div><div className="heading-actions">{(tab==='dashboard'||tab==='payroll'||tab==='time')&&monthPicker}{tab==='payroll'&&data.companies.length>0&&<Button variant="secondary" icon="plus" disabled={!readyContext||readOnly||busy||dirty||!employees.some(e=>e.active)} onClick={()=>{if(ask('Gerar holerites em lote para funcionários ativos nesta competência? A conferência do ponto continua disponível, sem bloqueio. Documentos anteriores serão preservados.'+(competence.startsWith('2026-')?'':' Os tributos desta competência serão manuais.')))void act(()=>window.holerites.generateMonthlyBatch({companyId,competence,taxMode:competence.startsWith('2026-')?'automatic':'manual'}),result=>{const summary=result as MonthlyBatchResult;return `Lote concluído: ${summary.created} criado(s) e ${summary.skipped} já existente(s).`;});}}>Gerar mês em lote</Button>}{tab==='employees'&&<Button icon="plus" disabled={readOnly||!data.companies.length} onClick={()=>openEmployee()}>Novo funcionário</Button>}{tab==='companies'&&<Button icon="plus" disabled={readOnly} onClick={()=>openCompany()}>Nova empresa</Button>}{tab==='history'&&<Button disabled={!companyId||busy} variant="secondary" icon="download" onClick={()=>void act(()=>window.holerites.exportCSV(historyScope),'Relatório CSV exportado.')}>Exportar CSV</Button>}</div></div>
         {error&&<div className="error-banner" role="alert"><span>{error}</span><button aria-label="Fechar erro" onClick={()=>setError('')}><Icon name="close" size={16}/></button></div>}
         {toast&&<div className="success-banner" role="status"><Icon name="check" size={17}/>{toast}<button onClick={()=>setToast('')} aria-label="Fechar aviso"><Icon name="close" size={15}/></button></div>}
-        {data.companies.length===0&&tab!=='companies'?<div className="card"><Empty title="Comece cadastrando sua empresa" description="O primeiro passo é cadastrar a empresa para controlar as jornadas e depois emitir holerites." action={<Button icon="plus" onClick={()=>openCompany()}>Cadastrar empresa</Button>}/></div>:null}
-        {data.companies.length>0&&tab==='time'&&<TimeControlPage companyId={companyId} competence={competence} employees={employees} initialEmployeeId={selectedEmployeeId} onPayrollUpdated={id=>{void reload();setSelectedEmployeeId(id);setPayrollKind('monthly');navigate('payroll');setToast('Ponto integrado. Confira o holerite antes de finalizar.');}}/>}
+        {!readyContext?<div className="card"><p role="status">Carregando dados da empresa e competência…</p></div>:<>
+        {data.companies.length===0&&tab!=='companies'?<div className="card"><Empty title="Comece cadastrando sua empresa" description="O primeiro passo é cadastrar a empresa para controlar as jornadas e depois emitir holerites." action={<Button icon="plus" disabled={readOnly} onClick={()=>openCompany()}>Cadastrar empresa</Button>}/></div>:null}
+        {data.companies.length>0&&tab==='time'&&<TimeControlPage key={timeKey} companyId={companyId} competence={competence} employees={employees} initialEmployeeId={selectedEmployeeId} initialView={timeView} initialMatrixFilter={timeFilter} readOnly={readOnly} onDirtyChange={setDirty} onBusyChange={setChildBusy} onOpenPayroll={id=>{if(!mayLeave())return;setSelectedEmployeeId(id);setPayrollKind('monthly');go('payroll');}} onPayrollUpdated={async id=>{await reload();setSelectedEmployeeId(id);setPayrollKind('monthly');go('payroll');setToast('Ponto integrado. Confira o holerite antes de finalizar.');}}/>}
         {data.companies.length>0&&tab==='dashboard'&&<>
           <section className="overview-hero" aria-label="Emissão de documentos e resumo da competência">
             <div className="hero-copy">
@@ -316,28 +379,28 @@ function App() {
             <div className="hero-summary">
               <div className="hero-summary-top"><span>COMPETÊNCIA · {brDate(competence)}</span><Icon name="payroll" size={19}/></div>
               <span className="hero-summary-label">Líquido registrado</span>
-              <strong>{money(currentNet)}</strong>
+              <button type="button" className="hero-net-link" onClick={()=>openHistory()} aria-label="Detalhar líquido registrado">{money(currentNet)}</button>
               <div className="hero-summary-divider"/>
-              <div className="hero-summary-row"><span>Documentos</span><b>{currentPayrolls.length}</b></div>
-              <div className="hero-summary-row"><span>Finalizados / aguardando</span><b>{currentPayrolls.filter(p=>p.status==='finalized').length}</b></div>
-              <div className="hero-summary-row"><span>Marcados como pagos</span><b>{currentPayrolls.filter(p=>p.status==='paid').length}</b></div>
+              <button type="button" className="hero-summary-row metric-link" onClick={()=>openHistory()}><span>Documentos</span><b>{currentPayrolls.length}</b></button>
+              <button type="button" className="hero-summary-row metric-link" onClick={()=>openHistory('finalized')}><span>Finalizados / aguardando</span><b>{currentPayrolls.filter(p=>p.status==='finalized').length}</b></button>
+              <button type="button" className="hero-summary-row metric-link" onClick={()=>openHistory('paid')}><span>Marcados como pagos</span><b>{currentPayrolls.filter(p=>p.status==='paid').length}</b></button>
             </div>
           </section>
-          <div className="metric-grid"><div className="metric-card"><span>Colaboradores ativos</span><b>{employees.filter(e=>e.active).length}</b><small>Cadastrados na empresa</small><div className="metric-icon"><Icon name="employees"/></div></div><div className="metric-card"><span>Fichas fechadas</span><b>{pointOverview?pointOverview.closed:'—'}</b><small>{brDate(competence)} · apuração concluída</small><div className="metric-icon"><Icon name="time"/></div></div><div className="metric-card featured"><span>Ponto aguardando fechamento</span><b>{pointOverview?Math.max(0,pointOverview.total-pointOverview.closed):'—'}</b><small>Colaboradores ativos da competência</small><div className="metric-icon"><Icon name="time"/></div></div><div className="metric-card"><span>Holerites gerados</span><b>{currentPayrolls.length}</b><small>Etapa final após fechamento do ponto</small><div className="metric-icon"><Icon name="payroll"/></div></div></div>
-          <div className="dashboard-grid"><section className="card"><div className="card-heading"><div><h2>Últimos holerites</h2><p>Acompanhe os recibos da sua equipe.</p></div><button className="text-action" onClick={()=>navigate('history')}>Ver histórico <Icon name="arrow" size={16}/></button></div>{payrolls.length? <div className="table-scroll"><table className="data-table"><thead><tr><th>Funcionário</th><th>Competência</th><th>Líquido</th><th>Status</th></tr></thead><tbody>{payrolls.slice(0,6).map(p=><tr key={p.id} onClick={()=>{setCompetence(p.competence);setPayrollKind(p.kind??'monthly');selectEmployee(p.employeeId);}} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();setCompetence(p.competence);setPayrollKind(p.kind??'monthly');selectEmployee(p.employeeId);}}} tabIndex={0} aria-label={'Abrir '+payrollKindLabels[p.kind??'monthly']+' de '+p.details.employee.name} className="click-row"><td><strong>{p.details.employee.name}</strong><small>{p.details.employee.role}</small></td><td>{brDate(p.competence)}<small>{payrollKindLabels[p.kind??'monthly']}</small></td><td className="money-cell">{money(p.details.totals.netCents)}</td><td><Status status={p.status}/></td></tr>)}</tbody></table></div>:<Empty title="Nenhum holerite emitido" description="Comece pela ficha de ponto e finalize a apuração para gerar os holerites." action={<Button onClick={()=>navigate('time')} icon="time">Abrir ponto</Button>}/>}</section>
-          <section className="card quick-card"><h2>Ações rápidas</h2><p>Atalhos para as tarefas do dia a dia.</p><button onClick={()=>navigate('time')}><span className="quick-icon"><Icon name="time"/></span><span><strong>Controlar ponto</strong><small>Registrar, conferir e fechar o mês</small></span><Icon name="arrow"/></button><button onClick={()=>startKind('vacation')}><span className="quick-icon"><Icon name="history"/></span><span><strong>Férias</strong><small>Terço constitucional e abono</small></span><Icon name="arrow"/></button>
+          <div className="metric-grid"><button type="button" className="metric-card metric-link" onClick={()=>openActive()}><span>Colaboradores ativos</span><b>{employees.filter(e=>e.active).length}</b><small>Cadastrados na empresa</small><div className="metric-icon"><Icon name="employees"/></div></button><button type="button" className="metric-card metric-link" onClick={()=>openTime('matrix','closed')}><span>Fichas fechadas</span><b>{pointOverview?pointOverview.closed:'—'}</b><small>{brDate(competence)} · apuração concluída</small><div className="metric-icon"><Icon name="time"/></div></button><button type="button" className="metric-card featured metric-link" onClick={()=>openTime('matrix','open')}><span>Ponto aguardando fechamento</span><b>{pointOverview?Math.max(0,pointOverview.total-pointOverview.closed):'—'}</b><small>Colaboradores ativos da competência</small><div className="metric-icon"><Icon name="time"/></div></button><button type="button" className="metric-card metric-link" onClick={()=>openHistory()}><span>Holerites gerados</span><b>{currentPayrolls.length}</b><small>Etapa final após fechamento do ponto</small><div className="metric-icon"><Icon name="payroll"/></div></button></div>
+          <div className="dashboard-grid"><section className="card"><div className="card-heading"><div><h2>Últimos holerites</h2><p>Acompanhe os recibos da sua equipe.</p></div><button className="text-action" onClick={()=>navigate('history')}>Ver histórico <Icon name="arrow" size={16}/></button></div>{payrolls.length? <div className="table-scroll"><table className="data-table"><thead><tr><th>Funcionário</th><th>Competência</th><th>Líquido</th><th>Status</th></tr></thead><tbody>{payrolls.slice(0,6).map(p=><tr key={p.id} onClick={()=>openPayroll(p)} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openPayroll(p);}}} tabIndex={0} aria-label={'Abrir '+payrollKindLabels[p.kind??'monthly']+' de '+p.details.employee.name} className="click-row"><td><strong>{p.details.employee.name}</strong><small>{p.details.employee.role}</small></td><td>{brDate(p.competence)}<small>{payrollKindLabels[p.kind??'monthly']}</small></td><td className="money-cell">{money(p.details.totals.netCents)}</td><td><Status status={p.status}/></td></tr>)}</tbody></table></div>:<Empty title="Nenhum holerite emitido" description="Comece pela ficha de ponto e finalize a apuração para gerar os holerites." action={<Button onClick={()=>navigate('time')} icon="time">Abrir ponto</Button>}/>}</section>
+          <section className="card quick-card"><h2>Ações rápidas</h2><p>Atalhos para as tarefas do dia a dia.</p><button onClick={()=>startKind('vacation')}><span className="quick-icon"><Icon name="history"/></span><span><strong>Férias</strong><small>Terço constitucional e abono</small></span><Icon name="arrow"/></button>
             <button onClick={()=>startKind('thirteenth-first')}><span className="quick-icon"><Icon name="payroll"/></span><span><strong>13º salário</strong><small>Primeira ou segunda parcela</small></span><Icon name="arrow"/></button>
             <button onClick={()=>startKind('termination')}><span className="quick-icon"><Icon name="history"/></span><span><strong>Rescisão</strong><small>Demonstrativo de desligamento</small></span><Icon name="arrow"/></button>
-            <button onClick={()=>openEmployee()}><span className="quick-icon"><Icon name="employees"/></span><span><strong>Novo funcionário</strong><small>Adicionar à equipe</small></span><Icon name="arrow"/></button><button onClick={()=>void act(()=>window.holerites.exportBackup(),'Backup salvo no local escolhido.')}><span className="quick-icon"><Icon name="backup"/></span><span><strong>Fazer backup</strong><small>Exportar banco SQLite</small></span><Icon name="arrow"/></button><div className="quick-info">Os recibos finalizados guardam uma cópia dos dados e cálculos da emissão, mesmo que o cadastro seja alterado.</div></section></div>
+            <button disabled={readOnly} onClick={()=>openEmployee()}><span className="quick-icon"><Icon name="employees"/></span><span><strong>Novo funcionário</strong><small>Adicionar à equipe</small></span><Icon name="arrow"/></button><button onClick={()=>void act(()=>window.holerites.exportBackup(),'Backup salvo no local escolhido.')}><span className="quick-icon"><Icon name="backup"/></span><span><strong>Fazer backup</strong><small>Exportar banco SQLite</small></span><Icon name="arrow"/></button><div className="quick-info">Os recibos finalizados guardam uma cópia dos dados e cálculos da emissão, mesmo que o cadastro seja alterado.</div></section></div>
         </>}
-        {tab==='companies'&&<div className="card"><div className="card-heading"><div><h2>Empresas cadastradas</h2><p>Dados utilizados no cabeçalho dos recibos.</p></div></div>{data.companies.length?<div className="table-scroll"><table className="data-table"><thead><tr><th>Razão social</th><th>CNPJ</th><th>Endereço</th><th></th></tr></thead><tbody>{data.companies.map(c=><tr key={c.id}><td><strong>{c.legalName}</strong><small>{c.tradeName}</small></td><td>{c.cnpj||'—'}</td><td>{c.address||'—'}</td><td><button className="small-action" onClick={()=>openCompany(c)}><Icon name="edit" size={15}/> Editar</button></td></tr>)}</tbody></table></div>:<Empty title="Nenhuma empresa cadastrada" description="Cadastre uma empresa para começar a emitir holerites." action={<Button icon="plus" onClick={()=>openCompany()}>Nova empresa</Button>}/>}</div>}
-        {tab==='employees'&&<div className="card"><div className="card-heading"><div><h2>Equipe cadastrada</h2><p>{employees.length} funcionário(s) na empresa selecionada.</p></div><div className="search-box"><Icon name="search" size={17}/><input placeholder="Buscar funcionário" aria-label="Buscar funcionário" value={search} onChange={e=>setSearch(e.target.value)}/></div></div>{employees.length?<div className="table-scroll"><table className="data-table"><thead><tr><th>Funcionário</th><th>CPF</th><th>Salário-base</th><th>Admissão</th><th>Situação</th><th></th></tr></thead><tbody>{employees.filter(e=>(e.name+' '+e.role+' '+e.cpf).toLowerCase().includes(filtered)).map(e=><tr key={e.id}><td><strong>{e.name}</strong><small>{e.role}</small></td><td>{e.cpf||'—'}</td><td className="money-cell">{money(e.salaryCents)}</td><td>{brDate(e.admissionDate)}</td><td><span className={'status '+(e.active?'status-paid':'status-draft')}><i/>{e.active?'Ativo':'Inativo'}</span></td><td><button className="small-action" onClick={()=>openEmployee(e)}><Icon name="edit" size={15}/> Editar</button> <button className="small-action" onClick={()=>{setSelectedEmployeeId(e.id);navigate('time');}}>Ponto</button></td></tr>)}</tbody></table></div>:<Empty title="Nenhum funcionário" description="Cadastre a equipe antes de preparar a folha." action={<Button icon="plus" onClick={()=>openEmployee()}>Cadastrar funcionário</Button>}/>}</div>}
+        {tab==='companies'&&<div className="card"><div className="card-heading"><div><h2>Empresas cadastradas</h2><p>Dados utilizados no cabeçalho dos recibos.</p></div></div>{data.companies.length?<div className="table-scroll"><table className="data-table"><thead><tr><th>Razão social</th><th>CNPJ</th><th>Endereço</th><th></th></tr></thead><tbody>{data.companies.map(c=><tr key={c.id}><td><strong>{c.legalName}</strong><small>{c.tradeName}</small></td><td>{c.cnpj||'—'}</td><td>{c.address||'—'}</td><td><button className="small-action" disabled={readOnly} onClick={()=>openCompany(c)}><Icon name="edit" size={15}/> Editar</button></td></tr>)}</tbody></table></div>:<Empty title="Nenhuma empresa cadastrada" description="Cadastre uma empresa para começar a emitir holerites." action={<Button icon="plus" disabled={readOnly} onClick={()=>openCompany()}>Nova empresa</Button>}/>}</div>}
+        {tab==='employees'&&<div className="card"><div className="card-heading"><div><h2>Equipe cadastrada</h2><p>{employees.length} funcionário(s) na empresa selecionada.</p><label><input type="checkbox" checked={activeOnly} onChange={e=>setActiveOnly(e.target.checked)}/> Somente ativos</label></div><div className="search-box"><Icon name="search" size={17}/><input placeholder="Buscar funcionário" aria-label="Buscar funcionário" value={search} onChange={e=>setSearch(e.target.value)}/></div></div>{employees.length?<div className="table-scroll"><table className="data-table"><thead><tr><th>Funcionário</th><th>CPF</th><th>Salário-base</th><th>Admissão</th><th>Situação</th><th></th></tr></thead><tbody>{employeeRows.slice(employeePage*pageSize,(employeePage+1)*pageSize).map(e=><tr key={e.id}><td><strong>{e.name}</strong><small>{e.role}</small></td><td>{e.cpf||'—'}</td><td className="money-cell">{money(e.salaryCents)}</td><td>{brDate(e.admissionDate)}</td><td><span className={'status '+(e.active?'status-paid':'status-draft')}><i/>{e.active?'Ativo':'Inativo'}</span></td><td><button className="small-action" disabled={readOnly} onClick={()=>openEmployee(e)}><Icon name="edit" size={15}/> Editar</button> <button className="small-action" onClick={()=>openTime('individual','all',e.id)}>Ponto</button></td></tr>)}</tbody></table>{pageNav(employeePage,employeeRows.length,setEmployeePage)}</div>:<Empty title="Nenhum funcionário" description="Cadastre a equipe antes de preparar a folha." action={<Button icon="plus" disabled={readOnly} onClick={()=>openEmployee()}>Cadastrar funcionário</Button>}/>}</div>}
         {data.companies.length>0&&tab==='payroll'&&<>
-          <PayrollKindTabs value={payrollKind} onChange={setPayrollKind} disabled={busy}/>
-          {employees.length===0?<div className="card"><Empty title="Cadastre o primeiro funcionário" description="É necessário ter pelo menos um colaborador para gerar um recibo." action={<Button onClick={()=>openEmployee()} icon="plus">Novo funcionário</Button>}/></div>:<div className="payroll-layout">
-            <section className="card employee-rail"><div className="rail-title"><h2>Colaboradores</h2><small>{brDate(competence)}</small></div><div className="rail-list">{employees.filter(e=>e.active||data.payrolls.some(p=>p.employeeId===e.id&&p.competence===competence)).map(e=>{const record=data.payrolls.find(p=>p.employeeId===e.id&&p.competence===competence&&p.kind===payrollKind);return <button key={e.id} className={'employee-rail-item '+(selectedEmployeeId===e.id?'selected':'')} onClick={()=>setSelectedEmployeeId(e.id)}><span className="person-avatar">{e.name.split(' ').slice(0,2).map(n=>n[0]).join('').toUpperCase()}</span><span className="employee-rail-text"><strong>{e.name}</strong><small>{record?labelStatus[record.status]:'Não gerado'}</small></span><Icon name="arrow" size={16}/></button>;})}</div></section>
-            <section className="card workspace">{selectedEmployee?<PayrollEditor key={`${selectedEmployee.id}-${competence}-${payrollKind}-${existing?.id??'new'}-${existing?.status??'none'}`} employee={selectedEmployee} competence={competence} kind={payrollKind} defaultAdvanceCents={data.payrolls.filter(p=>p.employeeId===selectedEmployee.id&&p.kind==='thirteenth-first'&&p.competence.startsWith(competence.slice(0,4))).reduce((v,p)=>v+p.details.totals.grossCents,0)} existing={existing} busy={busy}
-              onSave={input=>void act(()=>window.holerites.savePayroll(input),'Rascunho salvo.')}
+          <PayrollKindTabs value={payrollKind} onChange={kind=>{if(kind!==payrollKind&&mayLeave()){setPayrollKind(kind);setDirty(false);}}} disabled={busy}/>
+          {employees.length===0?<div className="card"><Empty title="Cadastre o primeiro funcionário" description="É necessário ter pelo menos um colaborador para gerar um recibo." action={<Button disabled={readOnly} onClick={()=>openEmployee()} icon="plus">Novo funcionário</Button>}/></div>:<div className="payroll-layout">
+            <section className="card employee-rail"><div className="rail-title"><h2>Colaboradores</h2><small>{brDate(competence)}</small></div><input aria-label="Buscar colaborador na folha" placeholder="Buscar colaborador" value={search} onChange={e=>setSearch(e.target.value)}/><div className="rail-list">{railRows.slice(railPage*pageSize,(railPage+1)*pageSize).map(e=>{const record=currentByEmployee.get(e.id);return <button key={e.id} className={'employee-rail-item '+(selectedEmployeeId===e.id?'selected':'')} onClick={()=>{if(e.id!==selectedEmployeeId&&mayLeave()){setSelectedEmployeeId(e.id);setDirty(false);}}}><span className="person-avatar">{e.name.split(' ').slice(0,2).map(n=>n[0]).join('').toUpperCase()}</span><span className="employee-rail-text"><strong>{e.name}</strong><small>{record?labelStatus[record.status]:'Não gerado'}</small></span><Icon name="arrow" size={16}/></button>;})}</div>{pageNav(railPage,railRows.length,setRailPage)}</section>
+            <section className="card workspace">{selectedEmployee?<PayrollEditor key={`${selectedEmployee.id}-${competence}-${payrollKind}-${existing?.id??'new'}-${existing?.status??'none'}`} employee={selectedEmployee} competence={competence} kind={payrollKind} defaultAdvanceCents={data.payrolls.filter(p=>p.employeeId===selectedEmployee.id&&p.kind==='thirteenth-first'&&p.competence.startsWith(competence.slice(0,4))).reduce((v,p)=>v+p.details.totals.grossCents,0)} existing={existing} busy={busy} readOnly={readOnly} onDirtyChange={setDirty}
+              onSave={input=>act(()=>window.holerites.savePayroll(input),'Rascunho salvo.')}
               onFinalize={()=>{if(ask('Finalizar este holerite? Depois disso os valores não poderão ser alterados.'))void act(()=>window.holerites.finalizePayroll(existing!.id),'Holerite finalizado.');}}
               onPaid={()=>{if(ask('Confirmar que o pagamento foi efetivamente realizado?'))void act(()=>window.holerites.markPaid(existing!.id),'Pagamento registrado.');}}
               onDelete={()=>{if(ask('Excluir este rascunho?'))void act(()=>window.holerites.deleteDraft(existing!.id),'Rascunho excluído.');}}
@@ -345,11 +408,12 @@ function App() {
             />:<Empty title="Selecione um colaborador" description="Escolha um funcionário à esquerda para criar ou consultar o holerite da competência selecionada."/>}</section>
           </div>}
         </>}
-        {tab==='history'&&<div className="card"><div className="card-heading"><div><h2>Recibos e pagamentos</h2><p>Holerites finalizados preservam os dados originais da emissão.</p></div><div className="history-controls"><select aria-label="Filtrar por tipo de documento" className="history-kind-filter" value={historyKind} onChange={e=>setHistoryKind(e.target.value as 'all'|PayrollKind)}><option value="all">Todos os tipos</option>{(Object.keys(payrollKindLabels) as PayrollKind[]).map(k=><option key={k} value={k}>{payrollKindLabels[k]}</option>)}</select><div className="search-box"><Icon name="search" size={17}/><input placeholder="Buscar nome ou mês" aria-label="Buscar holerite" value={search} onChange={e=>setSearch(e.target.value)}/></div></div></div>{payrolls.length?<div className="table-scroll"><table className="data-table"><thead><tr><th>Funcionário</th><th>Competência</th><th>Bruto</th><th>Descontos</th><th>Líquido</th><th>Status</th><th>Documentos</th></tr></thead><tbody>{payrolls.filter(p=>(historyKind==='all'||p.kind===historyKind)&&(p.details.employee.name+' '+p.competence).toLowerCase().includes(filtered)).map(p=><tr key={p.id}><td><strong>{p.details.employee.name}</strong><small>{companyName(p.companyId)}</small></td><td>{brDate(p.competence)}<small>{payrollKindLabels[p.kind??'monthly']}</small></td><td className="money-cell">{money(p.details.totals.grossCents)}</td><td className="money-cell">{money(p.details.totals.deductionCents)}</td><td className="money-cell"><strong>{money(p.details.totals.netCents)}</strong></td><td><Status status={p.status}/></td><td className="table-actions"><button onClick={()=>void act(()=>window.holerites.exportPDF(p.id))} title="Salvar PDF" aria-label="Salvar PDF"><Icon name="download" size={17}/></button><button onClick={()=>void act(()=>window.holerites.print(p.id))} title="Imprimir" aria-label="Imprimir"><Icon name="print" size={17}/></button><button onClick={()=>{setCompetence(p.competence);setPayrollKind(p.kind??'monthly');selectEmployee(p.employeeId);}} title="Abrir holerite">Abrir</button></td></tr>)}</tbody></table></div>:<Empty title="Histórico vazio" description="Os holerites aparecerão aqui depois do primeiro rascunho."/>}</div>}
-        <footer className="page-footer"><span>ArtiSys Ponto e Folha · 0.4.0</span><span>100% offline · Sem serviços pagos obrigatórios · Dados sob seu controle</span></footer>
+        {tab==='history'&&<div className="card"><div className="card-heading"><div><h2>Recibos e pagamentos</h2><p>Holerites finalizados preservam os dados originais da emissão.</p></div><div className="history-controls"><input type="month" aria-label="Competência do histórico" value={historyMonth} onChange={e=>setHistoryMonth(e.target.value)}/><select aria-label="Situação do holerite" value={historyStatus} onChange={e=>setHistoryStatus(e.target.value)}><option value="all">Todas as situações</option><option value="draft">Rascunho</option><option value="finalized">Finalizado</option><option value="paid">Pago</option></select><select aria-label="Filtrar por tipo de documento" className="history-kind-filter" value={historyKind} onChange={e=>setHistoryKind(e.target.value as 'all'|PayrollKind)}><option value="all">Todos os tipos</option>{(Object.keys(payrollKindLabels) as PayrollKind[]).map(k=><option key={k} value={k}>{payrollKindLabels[k]}</option>)}</select><div className="search-box"><Icon name="search" size={17}/><input placeholder="Buscar nome ou mês" aria-label="Buscar holerite" value={search} onChange={e=>setSearch(e.target.value)}/></div></div></div>{historyLoading||historyResultKey!==historyQueryKey?<p role="status">Carregando histórico…</p>:<div className="table-scroll"><table className="data-table"><thead><tr><th>Funcionário</th><th>Competência</th><th>Bruto</th><th>Descontos</th><th>Líquido</th><th>Status</th><th>Documentos</th></tr></thead><tbody>{historyRows.length===0&&<tr><td colSpan={7}>Nenhum holerite corresponde aos filtros.</td></tr>}{historyRows.map(p=><tr key={p.id}><td><strong>{p.details.employee.name}</strong><small>{companyName(p.companyId)}</small></td><td>{brDate(p.competence)}<small>{payrollKindLabels[p.kind??'monthly']}</small></td><td className="money-cell">{money(p.details.totals.grossCents)}</td><td className="money-cell">{money(p.details.totals.deductionCents)}</td><td className="money-cell"><strong>{money(p.details.totals.netCents)}</strong></td><td><Status status={p.status}/></td><td className="table-actions"><button onClick={()=>void act(()=>window.holerites.exportPDF(p.id))} title="Salvar PDF" aria-label="Salvar PDF"><Icon name="download" size={17}/></button><button onClick={()=>void act(()=>window.holerites.print(p.id))} title="Imprimir" aria-label="Imprimir"><Icon name="print" size={17}/></button><button onClick={()=>openPayroll(p)} title="Abrir holerite">Abrir</button></td></tr>)}</tbody></table>{pageNav(historyPage,historyResult.total,setHistoryPage)}</div>}</div>}
+        </>}
+        <footer className="page-footer"><span>ArtiSys Ponto e Folha · {appPackage.version}</span><span>100% offline · Sem serviços pagos obrigatórios · Dados sob seu controle</span></footer>
       </main>
     </div>
-    {authOpen&&<LocalAccessPanel auth={auth} onChange={syncAuth} onClose={()=>setAuthOpen(false)}/>}
+    {authOpen&&<LocalAccessPanel auth={auth} beforeLogout={mayLeave} onChange={syncAuth} onClose={()=>setAuthOpen(false)}/>}
     {modal&&<div className="modal-backdrop" role="presentation" onMouseDown={e=>{if(e.currentTarget===e.target)setModal(null);}}><div className="modal" role="dialog" aria-modal="true" aria-label={modal==='company'?'Cadastro de empresa':'Cadastro de funcionário'}><div className="modal-heading"><div><div className="eyebrow">CADASTRO</div><h2>{modal==='company'?(editingCompany?'Editar empresa':'Nova empresa'):(editingEmployee?'Editar funcionário':'Novo funcionário')}</h2></div><button className="icon-btn" type="button" aria-label="Fechar" onClick={()=>setModal(null)}><Icon name="close"/></button></div>{modal==='company'?<CompanyForm initial={editingCompany} busy={busy} onClose={()=>setModal(null)} onSave={input=>void act(async()=>{const c=await window.holerites.saveCompany(input);setCompanyId(c.id);setModal(null);},'Empresa salva com sucesso.')}/>:<EmployeeForm initial={editingEmployee} companies={data.companies} companyId={companyId} busy={busy} onClose={()=>setModal(null)} onSave={input=>void act(async()=>{await window.holerites.saveEmployee(input);setModal(null);},'Funcionário salvo com sucesso.')}/>}</div></div>}
   </div>;
 }
