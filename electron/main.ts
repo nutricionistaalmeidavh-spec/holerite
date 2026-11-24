@@ -106,6 +106,7 @@ function bindIPC() {
   bind('time-sheet',v=>db.call('time-sheet',v));
   bind('time-matrix',v=>db.call('time-matrix',v));
   bind('time-matrix-page',v=>db.call('time-matrix-page',v));
+  bind('time-report-totals',v=>db.call('time-report-totals',v));
   bind('time-generate-team',v=>db.call('time-generate-team',v));
   bind('time-review-team',v=>db.call('time-review-team',v));
   bind('time-audit',v=>db.call('time-audit',v));
