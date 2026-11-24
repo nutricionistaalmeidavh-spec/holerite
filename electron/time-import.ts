@@ -82,7 +82,7 @@ function textOf(value:unknown):string {
 }
 export class TimeImporter {
   private pending=new Map<string,Pending>();
-  constructor(private store:AttendanceStore,private employees:()=>Employee[]){}
+  constructor(private store:AttendanceStore,private employees:(companyId:string)=>Employee[]){}
   async choose(companyId:string,path:string):Promise<ImportChoice> {
     if(!this.store.getConfig(companyId).enabled)throw new Error('Módulo de ponto desativado.');
     const ext=extname(path).toLowerCase();
@@ -109,10 +109,11 @@ export class TimeImporter {
       const obj=Object.fromEntries(headers.map((h,i)=>[h,row.getCell(i+1).value]));
       if(Object.values(obj).every(v=>!textOf(v)))continue;
       rows.push(obj);
-      if(rows.length>30000)throw new Error('Importação limitada a 30.000 linhas por arquivo.');
+
     }
     if(!rows.length)throw new Error('Não há linhas de ponto para importar.');
     const token=randomUUID();
+    this.pending.clear(); // uma prévia por vez; não acumula planilhas abandonadas na memória
     this.pending.set(token,{companyId,filename:basename(path),hash,headers,rows});
     return {token,filename:basename(path),headers,suggestedMapping:(this.store.getImportMapping(companyId,headers) as ImportMapping|null)??mapHeaders(headers),count:rows.length};
   }
@@ -123,15 +124,18 @@ export class TimeImporter {
       throw new Error('Associe Data e pelo menos uma identificação do funcionário.');
     const validColumns=new Set(p.headers);
     if(Object.values(mapping).some(v=>v&&!validColumns.has(v)))throw new Error('Coluna inexistente no arquivo.');
-    const employees=this.employees().filter(e=>e.companyId===p.companyId);
+    const employees=this.employees(p.companyId).filter(e=>e.companyId===p.companyId);
+    const byId=new Map(employees.map(e=>[e.id,e]));
+    const index=(key:(e:Employee)=>string)=>{const map=new Map<string,Employee[]>();for(const e of employees){const value=key(e);if(!value)continue;const group=map.get(value)??[];group.push(e);map.set(value,group);}return map;};
+    const byCpf=index(e=>e.cpf.replace(/\D/g,'')),byRegistration=index(e=>norm(e.registration||'')),byName=index(e=>norm(e.name));
     const matches=(row:Record<string,unknown>):Employee=>{
       const identifier=(f:ImportField)=>mapping[f]?textOf(row[mapping[f]!]):'';
       const cpf=identifier('cpf').replace(/\D/g,'');
       const registration=norm(identifier('registration'));
       const name=norm(identifier('employee'));
-      let found=cpf?employees.filter(e=>e.cpf.replace(/\D/g,'')===cpf):[];
-      if(!found.length&&registration)found=employees.filter(e=>norm(e.registration||'')===registration);
-      if(!found.length&&name)found=employees.filter(e=>norm(e.name)===name);
+      let found=cpf?byCpf.get(cpf)??[]:[];
+      if(!found.length&&registration)found=byRegistration.get(registration)??[];
+      if(!found.length&&name)found=byName.get(name)??[];
       if(found.length!==1)throw new Error(found.length?'Funcionário ambíguo':'Funcionário não localizado');
       return found[0];
     };
@@ -153,12 +157,12 @@ export class TimeImporter {
         accepted.push({employeeId:employee.id,competence,day});
       }catch(error){errors.push('Linha '+(i+2)+': '+(error instanceof Error?error.message:String(error)));}
     });
-    return {pending:p,accepted,errors};
+    return {pending:p,accepted,errors,byId};
   }
   preview(token:string,mapping:ImportMapping):ImportPreview {
-    const {accepted,errors}=this.rows(token,mapping);
+    const {accepted,errors,byId}=this.rows(token,mapping);
     return {accepted:accepted.length,errors,samples:accepted.slice(0,8).map(item=>{
-      const e=this.employees().find(e=>e.id===item.employeeId);
+      const e=byId.get(item.employeeId);
       return {employee:e?.name||'',date:item.day.date,kind:item.day.kind,start:item.day.start,end:item.day.end};
     })};
   }
