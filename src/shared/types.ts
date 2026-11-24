@@ -153,6 +153,9 @@ export interface HoleriteAPI {
   getLocalOperators():Promise<LocalOperator[]>;
   addLocalOperator(input:{name:string;pin:string;role:LocalRole}):Promise<LocalOperator>;
   snapshot(): Promise<StateSnapshot>;
+  workspace(input:{companyId:string;competence:string}):Promise<StateSnapshot>;
+  payrollPage(input:import('./workspace-scope').PayrollScope&{page:number;pageSize:number}):Promise<{rows:PayrollRecord[];total:number}>;
+  getTimeOverview(input:{companyId:string;competence:string}):Promise<{total:number;closed:number}>;
   saveCompany(input: CompanyInput & {id?: string}): Promise<Company>;
   saveEmployee(input: EmployeeInput & {id?: string}): Promise<Employee>;
   generateMonthlyBatch(input:MonthlyBatchInput):Promise<MonthlyBatchResult>;
