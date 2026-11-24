@@ -30,6 +30,7 @@ const api: HoleriteAPI = {
   getTimeSheet: input => call('time-sheet',input),
   getTimeMatrix: input => call('time-matrix',input),
   getTimeMatrixPage: input=>call('time-matrix-page',input),
+  getTimeReportTotals: input=>call('time-report-totals',input),
   generateTimeTeam: input=>call('time-generate-team',input),
   reviewTimeTeam: input=>call('time-review-team',input),
   getTimeAudit: input => call('time-audit',input),
