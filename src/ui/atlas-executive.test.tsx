@@ -29,3 +29,11 @@ test('time workspace keeps the full five-step flow and honest suggestion termino
  assert.match(html,/point-workspace/);
  assert.match(html,/A conferência orienta e não bloqueia/);
 });
+
+test('Visão geral is the initial screen and navigation follows the company-to-payroll workflow',()=>{
+ const app=readFileSync(join(root,'App.tsx'),'utf8');
+ assert.match(app,/useState<Tab>\('dashboard'\)/);
+ const nav=app.split('<nav aria-label="Menu principal">')[1]?.split('</nav>')[0]??'';
+ const order=Array.from(nav.matchAll(/\['([^']+)','[^']+','[^']+'\]/g),match=>match[1]);
+ assert.deepEqual(order,['dashboard','companies','employees','time','payroll','history']);
+});
