@@ -57,6 +57,12 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
   const [preview,setPreview]=useState<ImportPreview|null>(null);
   const [allowReplace,setAllowReplace]=useState(false);
   const [audit,setAudit]=useState<Array<{date:string|null;action:string;reason:string;created_at:string;actor_name?:string}>>([]);
+  const [auditTotal,setAuditTotal]=useState(0);
+  const [auditPage,setAuditPage]=useState(0);
+  const [auditOpen,setAuditOpen]=useState(false);
+  const [imports,setImports]=useState<{rows:Array<{filename:string;processed:number;created_at:string}>;total:number}>({rows:[],total:0});
+  const [importPage,setImportPage]=useState(0);
+  const [importRevision,setImportRevision]=useState(0);
   const [attachments,setAttachments]=useState<PointAttachment[]>([]);
   const [bankBalance,setBankBalance]=useState(0);
   const [busy,setBusy]=useState(false);
@@ -80,14 +86,13 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
   const loadSheet=useCallback(async()=>{
     if(!employeeId||!ready)return;
     const request=++sheetRequest.current;
-    const [result,personSchedule,history,balance,documents]=await Promise.all([
+    const [result,personSchedule,balance,documents]=await Promise.all([
       window.holerites.getTimeSheet({employeeId,competence}),window.holerites.getTimeSchedule(employeeId),
-      window.holerites.getTimeAudit({employeeId,competence}),
       window.holerites.getTimeBankBalance({employeeId,competence}),
       window.holerites.getTimeAttachments({employeeId,competence})
     ]);
     if(request!==sheetRequest.current)return;
-    setSheet(result);setDays(result.days);setSchedule(personSchedule);setSavedSchedule(JSON.stringify(personSchedule));setAudit(history);setBankBalance(balance);setAttachments(documents);
+    setSheet(result);setDays(result.days);setSchedule(personSchedule);setSavedSchedule(JSON.stringify(personSchedule));setAudit([]);setAuditTotal(0);setAuditPage(0);setAuditOpen(false);setBankBalance(balance);setAttachments(documents);
   },[employeeId,competence,ready]);
   const loadMatrix=useCallback(async()=>{
     if(!ready||!companyId)return;
@@ -100,6 +105,8 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
     loadSheet().catch(e=>{if(active)setError(String(e));});return()=>{active=false;};
   },[loadSheet,employeeId,ready]);
   useEffect(()=>{if((view==='matrix'||view==='reports')&&ready)loadMatrix().catch(e=>setError(String(e)));},[view,loadMatrix,ready]);
+  useEffect(()=>{if(!employeeId||!auditOpen||!ready)return;let active=true;window.holerites.getTimeAuditPage({employeeId,competence,page:auditPage,pageSize:50}).then(result=>{if(active){setAudit(result.rows);setAuditTotal(result.total);}}).catch(e=>{if(active)setError(String(e));});return()=>{active=false;};},[employeeId,competence,auditOpen,auditPage,ready]);
+  useEffect(()=>{if(view!=='import'||!ready)return;let active=true;window.holerites.getTimeImportPage({companyId,page:importPage,pageSize:50}).then(result=>{if(active)setImports(result);}).catch(e=>{if(active)setError(String(e));});return()=>{active=false;};},[view,ready,companyId,importPage,importRevision]);
   const changeDay=(date:string,patch:Partial<PointDay>)=>{
     setDays(rows=>rows.map(day=>{
       if(day.date!==date)return day;
@@ -348,9 +355,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
             </div></td>
           </tr>)}</tbody></table></div>
           {!days.length&&<p>Ficha vazia. Use “Gerar calendário sugerido” ou a importação de planilha.</p>}
-          {audit.length>0&&<details className="time-audit"><summary>Histórico de alterações ({audit.length})</summary><ul>
-            {audit.slice(0,30).map((row,i)=><li key={i}>{row.created_at} · {row.actor_name||'Operador legado'} · {row.date||competence} · {row.action} {row.reason}</li>)}
-          </ul></details>}
+          <details className="time-audit" open={auditOpen} onToggle={e=>setAuditOpen(e.currentTarget.open)}><summary>Histórico de alterações{auditOpen?' ('+auditTotal+')':''}</summary><ul>{audit.map((row,i)=><li key={i}>{row.created_at} · {row.actor_name||'Operador legado'} · {row.date||competence} · {row.action} {row.reason}</li>)}</ul>{auditOpen&&<div className="time-pagination"><button type="button" disabled={auditPage===0} onClick={()=>setAuditPage(p=>p-1)}>Anterior</button><span>Página {auditPage+1} de {Math.max(1,Math.ceil(auditTotal/50))}</span><button type="button" disabled={(auditPage+1)*50>=auditTotal} onClick={()=>setAuditPage(p=>p+1)}>Próxima</button></div>}</details>
         </>}
       </section>}
       {view==='matrix'&&<section className="card time-sheet time-matrix-workspace">
@@ -443,6 +448,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
           const choice=await window.holerites.chooseTimeFile(companyId);
           setImportChoice(choice);setMapping(choice?.suggestedMapping??{});setPreview(null);
         })}>Selecionar arquivo CSV/XLSX</button>
+        <details className="time-audit"><summary>Histórico de importações ({imports.total})</summary><ul>{imports.rows.map((row,i)=><li key={i}>{row.filename} · {row.processed} linhas · {row.created_at}</li>)}</ul><div className="time-pagination"><button type="button" disabled={importPage===0} onClick={()=>setImportPage(p=>p-1)}>Anterior</button><span>Página {importPage+1} de {Math.max(1,Math.ceil(imports.total/50))}</span><button type="button" disabled={(importPage+1)*50>=imports.total} onClick={()=>setImportPage(p=>p+1)}>Próxima</button></div></details>
         {importChoice&&<>
           <p><strong>{importChoice.filename}</strong> · {importChoice.count} linhas</p>
           <div className="time-form-grid">{importFields.map(field=><label key={field.key} className="field">
@@ -457,7 +463,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
               onClick={()=>void run(async()=>{
                 const result=await window.holerites.commitTimeFile({token:importChoice.token,mapping,allowReplace});
                 setNotice(result.imported+' marcações importadas com sucesso.');
-                setImportChoice(null);setPreview(null);await loadMatrix();if(employeeId)await loadSheet();
+                setImportChoice(null);setPreview(null);setImportPage(0);setImportRevision(v=>v+1);await loadMatrix();if(employeeId)await loadSheet();
               })}>Importar {preview?.accepted||0} linhas</button>
           </div>
           {preview&&<><p>{preview.accepted} válidas · {preview.errors.length} com erro</p>
