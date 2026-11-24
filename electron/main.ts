@@ -1,8 +1,9 @@
-import {filterPayrollRecords,filterReportRows} from '../src/shared/workspace-scope';
+import {filterReportRows} from '../src/shared/workspace-scope';
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import { registerUpdateFlow } from './updates';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, mkdtemp, rm, open } from 'node:fs/promises';
+import {tmpdir} from 'node:os';
 import { join, basename, extname } from 'node:path';
 import { HoleriteDatabase } from './database';
 import { receiptHTML } from './receipt';
@@ -65,20 +66,23 @@ async function printTime(employeeId:string,competence:string,action:'pdf'|'print
 
 async function printTimeBatch(companyId:string,competence:string,employeeIds:string[],action:'pdf'|'print'):Promise<boolean>{
   if(!/^20\d{2}-(0[1-9]|1[0-2])$/.test(competence))throw new Error('Competência inválida.');
-  const available=storage.snapshot().employees.filter(employee=>employee.companyId===companyId&&employee.active);
+  const available=storage.listEmployees(companyId).filter(employee=>employee.active);
   const ids=employeeIds.length?[...new Set(employeeIds)]:available.map(employee=>employee.id);
-  if(!ids.length||ids.length>500)throw new Error('Selecione de 1 a 500 funcionários.');
+  if(!ids.length)throw new Error('Selecione pelo menos um funcionário.');
+  const byId=new Map(available.map(e=>[e.id,e]));
   const employees=ids.map(id=>{
-    const employee=available.find(e=>e.id===id);
+    const employee=byId.get(id);
     if(!employee)throw new Error('Funcionário não pertence à empresa.');
     return employee;
   });
   const company=storage.getCompany(companyId);
-  const html=pointReceiptBatchHTML(employees.map(employee=>({employee,company,sheet:storage.attendance.getSheet(employee.id,competence)})));
+  const sheets=new Map(storage.attendance.matrix(companyId,competence).map(sheet=>[sheet.employeeId,sheet]));
+  const html=pointReceiptBatchHTML(employees.map(employee=>({employee,company,sheet:sheets.get(employee.id)!})));
   const win=new BrowserWindow({show:false,width:1000,height:800,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,webSecurity:true}});
   win.webContents.setWindowOpenHandler(()=>({action:'deny'}));
+  const temporary=await mkdtemp(join(tmpdir(),'artisys-ponto-'));
   try {
-    await win.loadURL('data:text/html;charset=utf-8,'+encodeURIComponent(html));
+    const file=join(temporary,'fichas.html');await writeFile(file,html,'utf8');await win.loadFile(file);
     if(action==='pdf'){
       const selection=await dialog.showSaveDialog(mainWindow!,{title:'Salvar fichas da equipe',defaultPath:'Fichas-Ponto-Equipe-'+competence+'.pdf',filters:[{name:'PDF',extensions:['pdf']}]});
       if(selection.canceled||!selection.filePath)return false;
@@ -88,7 +92,7 @@ async function printTimeBatch(companyId:string,competence:string,employeeIds:str
       else reject(new Error(reason||'Falha na impressão em lote.'));
     }));
     return true;
-  }finally{if(!win.isDestroyed())win.destroy();}
+  }finally{if(!win.isDestroyed())win.destroy();await rm(temporary,{recursive:true,force:true});}
 }
 function bindIPC() {
   const bind=(name:string, fn:(arg:any)=>any)=>{
@@ -109,6 +113,9 @@ function bindIPC() {
   bind('auth-users',()=>storage.access.listUsers());
   bind('auth-add-user',(v:any)=>storage.access.addUser(v.name,v.pin,v.role));
   bind('snapshot',()=>storage.snapshot());
+  bind('workspace',(v:any)=>storage.workspace(v.companyId,v.competence));
+  bind('payroll-page',(v:any)=>storage.payrollPage(v));
+  bind('time-overview',(v:any)=>storage.attendance.overview(v.companyId,v.competence));
   bind('save-company',v=>storage.saveCompany(v));
   bind('save-employee',v=>storage.saveEmployee(v));
   bind('generate-monthly-batch',v=>storage.generateMonthlyBatch(v));
@@ -150,7 +157,7 @@ function bindIPC() {
       filters:[{name:ext.toUpperCase(),extensions:[ext]}]
     });
     if(dialogResult.canceled||!dialogResult.filePath)return false;
-    await exportTimeFile({store:storage.attendance,employees:storage.snapshot().employees,
+    await exportTimeFile({store:storage.attendance,employees:storage.listEmployees(v.companyId),
       companyId:v.companyId,competence:v.competence,format,filePath:dialogResult.filePath});
     return true;
   });
@@ -179,7 +186,7 @@ function bindIPC() {
   bind('time-export-report',async(v:any)=>{
     const result=await dialog.showSaveDialog(mainWindow!,{title:'Exportar indicadores de ponto',defaultPath:'Indicadores-Ponto-'+v.competence+'.csv',filters:[{name:'CSV',extensions:['csv']}]});
     if(result.canceled||!result.filePath)return false;
-    const people=new Map(storage.snapshot().employees.map(e=>[e.id,e]));
+    const people=new Map(storage.listEmployees(v.companyId).map(e=>[e.id,e]));
     const sheets=filterReportRows(storage.attendance.matrix(v.companyId,v.competence),v.employeeIds);
     const rows=[['Funcionário','Setor','Obra','Centro de custo','Competência','Minutos trabalhados','Minutos extras','Minutos noturnos','Minutos de atraso','Faltas','Saldo banco (min)','DSR estimado em centavos'],
       ...sheets.map(s=>{
@@ -204,10 +211,19 @@ function bindIPC() {
     storage.getCompany(v.companyId);
     const result=await dialog.showSaveDialog(mainWindow!,{title:'Exportar resumo da folha',defaultPath:'holerites.csv',filters:[{name:'CSV',extensions:['csv']}]});
     if(result.canceled || !result.filePath) return false;
-    const records=filterPayrollRecords(storage.snapshot().payrolls,v);
+    const records=storage.payrollExport(v);
     const quote=(s:unknown)=>{const value=String(s??'');return '"'+(/^[=+@-]/.test(value)?"'"+value:value).replace(/"/g,'""')+'"';};
-    const rows=[['Competência','Empresa','Funcionário','CPF','Status','Bruto','Descontos','Líquido'],...records.map(p=>[p.competence,p.details.company.legalName,p.details.employee.name,p.details.employee.cpf,p.status,p.details.totals.grossCents/100,p.details.totals.deductionCents/100,p.details.totals.netCents/100])];
-    await writeFile(result.filePath,'\uFEFF'+rows.map(r=>r.map(quote).join(';')).join('\r\n'),'utf8');
+    const file=await open(result.filePath,'w');
+    try{
+      const header=['Competência','Empresa','Funcionário','CPF','Status','Bruto','Descontos','Líquido'];
+      await file.writeFile('\uFEFF'+header.map(quote).join(';')+'\r\n','utf8');
+      let buffer='',count=0;
+      for(const p of records){
+        buffer+=[p.competence,p.details.company.legalName,p.details.employee.name,p.details.employee.cpf,p.status,p.details.totals.grossCents/100,p.details.totals.deductionCents/100,p.details.totals.netCents/100].map(quote).join(';')+'\r\n';
+        if(++count%256===0){await file.writeFile(buffer,'utf8');buffer='';}
+      }
+      if(buffer)await file.writeFile(buffer,'utf8');
+    }finally{await file.close();}
     return true;
   });
 }
@@ -303,7 +319,7 @@ app.whenReady().then(async()=>{
   const directory=app.getPath('userData');
   await mkdir(directory,{recursive:true});
   storage=new HoleriteDatabase(join(directory,'holerites.sqlite'));
-  timeImporter=new TimeImporter(storage.attendance,()=>storage.snapshot().employees);
+  timeImporter=new TimeImporter(storage.attendance,companyId=>storage.listEmployees(companyId));
   bindIPC();
   await createMain();
   checkUpdatesAtStartup();
