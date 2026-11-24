@@ -49,3 +49,30 @@ test('large writes exceed the former 30,000-day artificial ceiling and keep one 
   assert.equal(db.attendance.getSheet(people.at(-1)!.id,'2026-10').days.length,31);
  }finally{db.close();}
 });
+
+test('audit and import history can reach records beyond the former caps',()=>{
+ const db=new HoleriteDatabase(':memory:');
+ try{
+  const c=db.saveCompany({legalName:'Histórico',tradeName:'',cnpj:'',address:''});
+  const e=db.saveEmployee({companyId:c.id,name:'Pessoa',cpf:'',role:'Auxiliar',admissionDate:'2025-01-01',salaryCents:300000,dependents:0,active:true});
+  const day=previewMonth('2026-11',defaultSchedule(),0)[0];
+  for(let i=0;i<305;i++)db.attendance.saveMatrix([{employeeId:e.id,competence:'2026-11',day:{...day,notes:'Revisão '+i}}]);
+  const last=db.attendance.auditPage(e.id,'2026-11',6,50);
+  assert.equal(last.total,305);assert.equal(last.rows.length,5);
+  for(let i=0;i<55;i++)db.attendance.recordImport(c.id,'Arquivo '+i,i.toString(16).padStart(64,'0'),1);
+  assert.equal(db.attendance.importPage(c.id,1,50).rows.length,5);
+  assert.equal(db.attendance.importPage(c.id,1,50).total,55);
+ }finally{db.close();}
+});
+
+test('more than 100 recurring and payroll items can be persisted without a commercial quota',()=>{
+ const db=new HoleriteDatabase(':memory:');
+ try{
+  const c=db.saveCompany({legalName:'Rubricas',tradeName:'',cnpj:'',address:''});
+  const entries=Array.from({length:125},(_,i)=>({id:'r'+i,code:'R'+i,description:'Rubrica '+i,kind:'earning' as const,amountCents:100,inssBase:false,irBase:false,fgtsBase:false}));
+  const e=db.saveEmployee({companyId:c.id,name:'Pessoa',cpf:'',role:'Auxiliar',admissionDate:'2025-01-01',salaryCents:300000,dependents:0,active:true,recurringEntries:entries});
+  assert.equal(e.recurringEntries?.length,125);
+  const p=db.savePayroll({employeeId:e.id,competence:'2026-11',taxMode:'manual',entries});
+  assert.equal(p.details.items.length,126);
+ }finally{db.close();}
+});
