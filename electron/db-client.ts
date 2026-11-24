@@ -8,7 +8,7 @@ export class DatabaseClient {
   private closing=false;
   readonly ready:Promise<void>;
   constructor(workerPath:string,path:string){
-    this.worker=new Worker(workerPath,{workerData:{path}});
+    this.worker=new Worker(workerPath,{workerData:{path},execArgv:[]});
     let resolveReady!:()=>void,rejectReady!:(error:Error)=>void;
     this.ready=new Promise<void>((resolve,reject)=>{resolveReady=resolve;rejectReady=reject;});
     const fail=(error:Error)=>{
