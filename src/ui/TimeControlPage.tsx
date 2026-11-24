@@ -60,6 +60,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
   const [reportFilter,setReportFilter]=useState('');
   const [page,setPage]=useState(0);
   const [reportPage,setReportPage]=useState(0);
+  const [reportTotals,setReportTotals]=useState<Awaited<ReturnType<typeof window.holerites.getTimeReportTotals>>|null>(null);
   const [importChoice,setImportChoice]=useState<ImportChoice|null>(null);
   const [mapping,setMapping]=useState<ImportMapping>({});
   const [preview,setPreview]=useState<ImportPreview|null>(null);
@@ -142,6 +143,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
   const matrixIssueKeys=useMemo(()=>new Set(matrixIssues.map(issue=>issue.employeeId+'|'+issue.date)),[matrixIssues]);
   const matrixSummary={total:matrixInfo.teamTotal,closed:matrixInfo.closed,suggested:matrixInfo.suggested};
   const reportRows=matrixReady?matrix:[];
+  useEffect(()=>{setReportTotals(null);},[companyId,competence,view,reportFilter]);
   const reportEmployeeIds=useMemo(()=>activeEmployees.filter(e=>[e.name,e.sector,e.jobSite,e.costCenter].some(v=>(v||'').toLowerCase().includes(reportFilter.trim().toLowerCase()))).map(e=>e.id),[activeEmployees,reportFilter]);
   const printPeople=useMemo(()=>activeEmployees.filter(e=>e.name.toLowerCase().includes(printSearch.toLowerCase())),[activeEmployees,printSearch]);
   const changedDays=days.filter(day=>JSON.stringify(day)!==JSON.stringify(sheet?.days.find(old=>old.date===day.date)));
@@ -449,7 +451,9 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
           <button className="btn btn-secondary" disabled={busy||!matrixSummary.total} onClick={()=>void run(async()=>{await window.holerites.exportTimeReport({companyId,competence,employeeIds:reportEmployeeIds});})}>Exportar indicadores CSV</button>
         </div>
         <p>Indicadores calculados a partir das fichas salvas. Horários apenas sugeridos não entram na apuração; avisos não bloqueiam o trabalho.</p>
-        <input value={reportFilter} onChange={e=>{setReportFilter(e.target.value);setReportPage(0);}} aria-label="Filtrar relatórios" placeholder="Filtrar por funcionário, obra, setor ou centro de custo"/>
+        <input value={reportFilter} onChange={e=>{setReportFilter(e.target.value);setReportPage(0);}} disabled={busy} aria-label="Filtrar relatórios" placeholder="Filtrar por funcionário, obra, setor ou centro de custo"/>
+        <button className="btn btn-secondary" disabled={busy} onClick={()=>void run(async()=>{setReportTotals(await window.holerites.getTimeReportTotals({companyId,competence,employeeIds:reportEmployeeIds}));})}>Calcular totais de toda a seleção</button>
+        {reportTotals&&<div className="time-status"><span>Total da seleção: {reportTotals.employees} funcionário(s) · {reportTotals.absences} falta(s) · {reportTotals.issues} aviso(s)</span><small>Trabalhadas {duration(reportTotals.workedMinutes)} | Extras {duration(reportTotals.overtimeMinutes)} | Atrasos {duration(reportTotals.lateMinutes)} | Noturnas {duration(reportTotals.nightMinutes)}</small></div>}
         <div className="time-status"><span>{matrixInfo.total} funcionário(s) no filtro · Nesta página:  {reportRows.reduce((v,s)=>v+s.summary.absences,0)} falta(s) · {matrixIssues.length} aviso(s)</span>
           <small>Totais da página: Trabalhadas {duration(reportRows.reduce((v,s)=>v+s.summary.workedMinutes,0))} | Extras {duration(reportRows.reduce((v,s)=>v+s.summary.overtimeMinutes,0))} | Atrasos {duration(reportRows.reduce((v,s)=>v+s.summary.lateMinutes,0))}</small></div>
         <div className="table-scroll time-table"><table className="data-table"><thead><tr><th>Funcionário</th><th>Setor</th><th>Obra</th><th>Centro de custo</th><th>Trabalhadas</th><th>Extras</th><th>Noturnas</th><th>Atrasos</th><th>Faltas</th><th>Status</th></tr></thead>
