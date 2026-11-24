@@ -58,6 +58,10 @@ export class AttendanceStore {
     `);
     const auditColumns=new Set((this.db.prepare('PRAGMA table_info(time_audit)').all() as Row[]).map(row=>String(row.name)));
     if(!auditColumns.has('actor_id'))this.db.exec('ALTER TABLE time_audit ADD COLUMN actor_id TEXT;');
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_time_import_company_hash ON time_import_batches(company_id,content_hash);
+      CREATE INDEX IF NOT EXISTS idx_time_import_company_history ON time_import_batches(company_id,created_at DESC,id DESC);
+      CREATE INDEX IF NOT EXISTS idx_time_sheets_employee_closed ON time_sheets(employee_id,status,competence);
+      CREATE INDEX IF NOT EXISTS idx_time_days_month_employee ON time_days(competence,employee_id,date);`);
     // Backwards-compatible migration of the opt-in version: point is now the core.
     this.db.exec('UPDATE time_configs SET enabled=1 WHERE enabled<>1;');
   }
@@ -100,27 +104,24 @@ export class AttendanceStore {
     return this.getSchedule(employeeId);
   }
   private requireEnabled(companyId:string){this.getConfig(companyId);}
-  private readDays(employeeId:string,competence:string):PointDay[] {
-    return (this.db.prepare('SELECT * FROM time_days WHERE employee_id=? AND competence=? ORDER BY date')
-      .all(employeeId,competence) as Row[]).map(row=>({
+  private dayFrom(row:Row):PointDay{return {
       date:String(row.date),kind:String(row.kind) as PointDay['kind'],source:String(row.source) as PointDay['source'],
       start:String(row.start),breakStart:String(row.break_start),breakEnd:String(row.break_end),end:String(row.end),notes:String(row.notes)
-    }));
+    };}
+  private readDays(employeeId:string,competence:string):PointDay[] {
+    return (this.db.prepare('SELECT * FROM time_days WHERE employee_id=? AND competence=? ORDER BY date').all(employeeId,competence) as Row[]).map(row=>this.dayFrom(row));
   }
   getClosedSchedule(employeeId:string,competence:string):WorkSchedule {
-    const sheet=this.getSheet(employeeId,competence);
-    if(sheet.status!=='closed')throw new Error('Ficha ainda não fechada.');
-    const row=this.db.prepare('SELECT closed_snapshot_json FROM time_sheets WHERE employee_id=? AND competence=?')
-      .get(employeeId,competence) as Row;
+    const row=this.db.prepare("SELECT closed_snapshot_json FROM time_sheets WHERE employee_id=? AND competence=? AND status='closed'").get(employeeId,competence) as Row|undefined;
+    if(!row?.closed_snapshot_json)throw new Error('Ficha ainda não fechada.');
     return json<{schedule:WorkSchedule}>(row.closed_snapshot_json).schedule;
   }
   bankBalance(employeeId:string,competence:string):number {
     const employee=this.employee(employeeId);
     this.requireEnabled(String(employee.company_id));
     if(!validMonth(competence))throw new Error('Competência inválida.');
-    const rows=this.db.prepare("SELECT closed_snapshot_json FROM time_sheets WHERE employee_id=? AND status='closed' AND competence<=?")
-      .all(employeeId,competence) as Row[];
-    return rows.reduce((total,row)=>total+Number(json<{summary:PointSummary}>(row.closed_snapshot_json).summary.bankMinutes||0),0);
+    const row=this.db.prepare("SELECT COALESCE(SUM(COALESCE(json_extract(closed_snapshot_json,'$.summary.bankMinutes'),0)),0) AS balance FROM time_sheets WHERE employee_id=? AND status='closed' AND competence<=?").get(employeeId,competence) as Row;
+    return Number(row.balance);
   }
   getSheet(employeeId:string,competence:string):TimeSheet {
     const employee=this.employee(employeeId);
@@ -139,8 +140,28 @@ export class AttendanceStore {
   matrix(companyId:string,competence:string):Array<TimeSheet&{employeeName:string}> {
     this.requireEnabled(companyId);
     if(!validMonth(competence))throw new Error('Competência inválida.');
-    const employees=this.db.prepare('SELECT id,name FROM employees WHERE company_id=? AND active=1 ORDER BY name').all(companyId) as Row[];
-    return employees.map(row=>({...this.getSheet(String(row.id),competence),employeeName:String(row.name)}));
+    const config=this.getConfig(companyId);
+    const employees=this.db.prepare(`SELECT e.id,e.name,e.salary_cents,es.schedule_json,s.status,s.revision,s.closed_at,s.closed_snapshot_json
+      FROM employees e LEFT JOIN time_employee_schedules es ON es.employee_id=e.id
+      LEFT JOIN time_sheets s ON s.employee_id=e.id AND s.competence=?
+      WHERE e.company_id=? AND e.active=1 ORDER BY e.name,e.id`).all(competence,companyId) as Row[];
+    const groups=new Map<string,PointDay[]>();
+    for(const row of this.db.prepare(`SELECT d.* FROM employees e JOIN time_days d ON d.employee_id=e.id AND d.competence=?
+      WHERE e.company_id=? AND e.active=1 ORDER BY e.id,d.date`).iterate(competence,companyId)){
+      const id=String(row.employee_id);const list=groups.get(id)??[];list.push(this.dayFrom(row));groups.set(id,list);
+    }
+    return employees.map(row=>{
+      const employeeId=String(row.id),days=groups.get(employeeId)??[];
+      const snapshot=row.closed_snapshot_json?json<{summary:PointSummary;schedule:WorkSchedule}>(row.closed_snapshot_json):null;
+      const schedule=snapshot?.schedule??(row.schedule_json?json<WorkSchedule>(row.schedule_json):config.schedule);
+      return {employeeId,companyId,competence,employeeName:String(row.name),status:row.status==='closed'?'closed':'draft',revision:Number(row.revision??0),days,issues:diagnosePointDays(days,schedule,competence),summary:snapshot?.summary??assessMonth(days,schedule,Number(row.salary_cents)),closedAt:row.closed_at?String(row.closed_at):null};
+    });
+  }
+  overview(companyId:string,competence:string):{total:number;closed:number}{
+    this.requireEnabled(companyId);if(!validMonth(competence))throw new Error('Competência inválida.');
+    const row=this.db.prepare(`SELECT COUNT(*) AS total,COALESCE(SUM(CASE WHEN s.status='closed' THEN 1 ELSE 0 END),0) AS closed
+      FROM employees e LEFT JOIN time_sheets s ON s.employee_id=e.id AND s.competence=? WHERE e.company_id=? AND e.active=1`).get(competence,companyId) as Row;
+    return {total:Number(row.total),closed:Number(row.closed)};
   }
   private audit(employeeId:string,competence:string,action:string,before:unknown,after:unknown,reason='',date:string|null=null){
     this.db.prepare('INSERT INTO time_audit(id,employee_id,competence,date,action,before_json,after_json,reason,created_at,actor_id) VALUES (?,?,?,?,?,?,?,?,?,?)').run(randomUUID(),employeeId,competence,date,
@@ -151,28 +172,30 @@ export class AttendanceStore {
     return this.db.prepare('SELECT ta.date,ta.action,ta.before_json,ta.after_json,ta.reason,ta.created_at,ta.actor_id,op.name AS actor_name FROM time_audit ta LEFT JOIN time_operators op ON ta.actor_id=op.id WHERE ta.employee_id=? AND ta.competence=? ORDER BY ta.created_at DESC LIMIT 300').all(employeeId,competence) as Row[];
   }
   saveMatrix(changes:MatrixChange[],overwriteImported=false):number {
-    if(!Array.isArray(changes)||!changes.length||changes.length>30000)throw new Error('Informe de 1 a 30.000 dias por operação.');
+    if(!Array.isArray(changes)||!changes.length)throw new Error('Informe os dias para salvar.');
     const members=new Map<string,{companyId:string;revision:number}>();
     const keys=new Set<string>();
+    const employeeCompanies=new Map<string,string>(),checkedCompanies=new Set<string>();
+    const readSource=this.db.prepare('SELECT source FROM time_days WHERE employee_id=? AND competence=? AND date=?');
+    const readState=this.db.prepare('SELECT revision,status FROM time_sheets WHERE employee_id=? AND competence=?');
     for(const item of changes){
       if(!validMonth(item.competence)||!item.day.date.startsWith(item.competence+'-'))throw new Error('Data fora da competência.');
       validateDay(item.day);
       const key=item.employeeId+'|'+item.competence+'|'+item.day.date;
       if(keys.has(key))throw new Error('Registro repetido no lote.');
       keys.add(key);
-      const employee=this.employee(item.employeeId);
-      const companyId=String(employee.company_id);
-      this.requireEnabled(companyId);
+      let companyId=employeeCompanies.get(item.employeeId);
+      if(companyId===undefined){companyId=String(this.employee(item.employeeId).company_id);employeeCompanies.set(item.employeeId,companyId);}
+      if(!checkedCompanies.has(companyId)){this.requireEnabled(companyId);checkedCompanies.add(companyId);}
       const group=item.employeeId+'|'+item.competence;
       if(!members.has(group)){
-        const old=this.getSheet(item.employeeId,item.competence);
-        if(old.status==='closed')throw new Error('Ficha fechada. Solicite reabertura antes de alterar.');
-        members.set(group,{companyId,revision:old.revision});
+        const old=readState.get(item.employeeId,item.competence) as Row|undefined;
+        if(old?.status==='closed')throw new Error('Ficha fechada. Solicite reabertura antes de alterar.');
+        members.set(group,{companyId,revision:Number(old?.revision??0)});
       }
       if(item.expectedRevision!==undefined&&item.expectedRevision!==members.get(group)?.revision)
         throw new Error('Ficha alterada por outra operação. Recarregue os dados.');
-      const current=this.db.prepare('SELECT source FROM time_days WHERE employee_id=? AND competence=? AND date=?')
-        .get(item.employeeId,item.competence,item.day.date) as Row|undefined;
+      const current=readSource.get(item.employeeId,item.competence,item.day.date) as Row|undefined;
       if(current&&current.source!=='suggested'&&item.day.source==='imported'&&!overwriteImported)
         throw new Error('Marcação real já existente em '+item.day.date+'. Use substituição explícita para alterar.');
     }
@@ -186,15 +209,16 @@ export class AttendanceStore {
         if(latest.status==='closed'||Number(latest.revision)!==member.revision)
           throw new Error('Ficha modificada enquanto era salva.');
       }
-      for(const {employeeId,competence,day} of changes){
-        const old=this.db.prepare('SELECT * FROM time_days WHERE employee_id=? AND competence=? AND date=?')
-          .get(employeeId,competence,day.date) as Row|undefined;
-        this.db.prepare(`INSERT INTO time_days(employee_id,competence,date,kind,source,start,break_start,break_end,end,notes,updated_at)
+      const readDay=this.db.prepare('SELECT * FROM time_days WHERE employee_id=? AND competence=? AND date=?');
+      const writeDay=this.db.prepare(`INSERT INTO time_days(employee_id,competence,date,kind,source,start,break_start,break_end,end,notes,updated_at)
           VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(employee_id,competence,date) DO UPDATE SET
           kind=excluded.kind,source=excluded.source,start=excluded.start,break_start=excluded.break_start,
-          break_end=excluded.break_end,end=excluded.end,notes=excluded.notes,updated_at=excluded.updated_at`
-        ).run(employeeId,competence,day.date,day.kind,day.source,day.start,day.breakStart,day.breakEnd,day.end,day.notes,now());
-        this.audit(employeeId,competence,old?'change':'create',old,day,'',day.date);
+          break_end=excluded.break_end,end=excluded.end,notes=excluded.notes,updated_at=excluded.updated_at`);
+      const writeAudit=this.db.prepare('INSERT INTO time_audit(id,employee_id,competence,date,action,before_json,after_json,reason,created_at,actor_id) VALUES (?,?,?,?,?,?,?,?,?,?)');
+      for(const {employeeId,competence,day} of changes){
+        const old=readDay.get(employeeId,competence,day.date) as Row|undefined;
+        writeDay.run(employeeId,competence,day.date,day.kind,day.source,day.start,day.breakStart,day.breakEnd,day.end,day.notes,now());
+        writeAudit.run(randomUUID(),employeeId,competence,day.date,old?'change':'create',old?JSON.stringify(old):null,JSON.stringify(day),'',now(),this.auditActor);
       }
       for(const group of members.keys()){
         const [id,competence]=group.split('|');
@@ -329,8 +353,8 @@ export class AttendanceStore {
   listAttachments(employeeId:string,competence:string):Array<{id:string;employeeId:string;date:string;filename:string;mime:string;size:number;createdAt:string}> {
     this.employee(employeeId);
     if(!validMonth(competence))throw new Error('Competência inválida.');
-    const rows=this.db.prepare('SELECT id,employee_id,date,filename,mime,length(content) AS size,created_at FROM time_attachments WHERE employee_id=? AND substr(date,1,7)=? ORDER BY date,created_at')
-      .all(employeeId,competence) as Row[];
+    const rows=this.db.prepare('SELECT id,employee_id,date,filename,mime,length(content) AS size,created_at FROM time_attachments WHERE employee_id=? AND date>=? AND date<=? ORDER BY date,created_at')
+      .all(employeeId,competence+'-01',competence+'-31') as Row[];
     return rows.map(row=>({id:String(row.id),employeeId:String(row.employee_id),date:String(row.date),filename:String(row.filename),mime:String(row.mime),size:Number(row.size),createdAt:String(row.created_at)}));
   }
   getAttachment(employeeId:string,id:string):{filename:string;mime:string;content:Buffer} {
