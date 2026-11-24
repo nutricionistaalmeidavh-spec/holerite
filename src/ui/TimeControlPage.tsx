@@ -1,4 +1,4 @@
-import {useCallback,useEffect,useMemo,useState} from 'react';
+import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
 import type {Employee,PointAttachment} from '../shared/types';
 import type {TimeConfig,TimeSheet,MatrixChange} from '../../electron/attendance';
 import type {ImportChoice,ImportMapping,ImportPreview,ImportField} from '../../electron/time-import';
@@ -37,6 +37,8 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
 }){
   const [config,setConfig]=useState<TimeConfig|null>(null);
   const [employeeId,setEmployeeId]=useState('');
+  const sheetRequest=useRef(0);
+  const matrixRequest=useRef(0);
   const [schedule,setSchedule]=useState<WorkSchedule>(defaultSchedule());
   const [sheet,setSheet]=useState<TimeSheet|null>(null);
   const [days,setDays]=useState<PointDay[]>([]);
@@ -77,20 +79,24 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
   },[companyId]);
   const loadSheet=useCallback(async()=>{
     if(!employeeId||!ready)return;
+    const request=++sheetRequest.current;
     const [result,personSchedule,history,balance,documents]=await Promise.all([
       window.holerites.getTimeSheet({employeeId,competence}),window.holerites.getTimeSchedule(employeeId),
       window.holerites.getTimeAudit({employeeId,competence}),
       window.holerites.getTimeBankBalance({employeeId,competence}),
       window.holerites.getTimeAttachments({employeeId,competence})
     ]);
+    if(request!==sheetRequest.current)return;
     setSheet(result);setDays(result.days);setSchedule(personSchedule);setSavedSchedule(JSON.stringify(personSchedule));setAudit(history);setBankBalance(balance);setAttachments(documents);
   },[employeeId,competence,ready]);
   const loadMatrix=useCallback(async()=>{
     if(!ready||!companyId)return;
+    const request=++matrixRequest.current;
     const result=await window.holerites.getTimeMatrix({companyId,competence});
+    if(request!==matrixRequest.current)return;
     setMatrix(result);setMatrixDrafts({});
   },[ready,companyId,competence]);
-  useEffect(()=>{let active=true;if(!employeeId||!ready){setSheet(null);setDays([]);return;}
+  useEffect(()=>{let active=true;if(!employeeId||!ready){sheetRequest.current++;setSheet(null);setDays([]);return;}
     loadSheet().catch(e=>{if(active)setError(String(e));});return()=>{active=false;};
   },[loadSheet,employeeId,ready]);
   useEffect(()=>{if((view==='matrix'||view==='reports')&&ready)loadMatrix().catch(e=>setError(String(e)));},[view,loadMatrix,ready]);
@@ -118,7 +124,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
   useEffect(()=>()=>{onDirtyChange?.(false);onBusyChange?.(false);},[onDirtyChange,onBusyChange]);
   const mayLeave=()=>!busy&&(!dirty||window.confirm('Há alterações não salvas. Deseja descartá-las? Cancelar mantém a edição atual.'));
   const switchView=(next:View)=>{if(next===view)return;if(!mayLeave())return;setMatrixDrafts({});if(sheet)setDays(sheet.days);if(savedSchedule)setSchedule(JSON.parse(savedSchedule));if(savedConfig)setConfig(JSON.parse(savedConfig));setView(next);};
-  const openIndividual=(id:string)=>{if(!mayLeave())return;setMatrixDrafts({});if(sheet)setDays(sheet.days);if(savedSchedule)setSchedule(JSON.parse(savedSchedule));if(savedConfig)setConfig(JSON.parse(savedConfig));setEmployeeId(id);setView('individual');};
+  const openIndividual=(id:string)=>{if(!mayLeave())return;setMatrixDrafts({});if(sheet)setDays(sheet.days);if(savedSchedule)setSchedule(JSON.parse(savedSchedule));if(savedConfig)setConfig(JSON.parse(savedConfig));if(id!==employeeId){sheetRequest.current++;setSheet(null);setDays([]);setEmployeeId(id);}setView('individual');};
   const saveDays=async()=>{
     if(!sheet||!changedDays.length||readOnly)return;
     await window.holerites.saveTimeMatrix({changes:changedDays.map(day=>({
@@ -142,6 +148,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
     return matches&&(matrixFilter==='all'||(matrixFilter==='closed'&&closed)||(matrixFilter==='open'&&!closed)||(matrixFilter==='issues'&&matrixIssueKeys.has(row.key))||(matrixFilter==='changed'&&!!matrixDrafts[row.key]));
   }),[allMatrixRows,filter,matrixFilter,matrix,matrixIssueKeys,matrixDrafts]);
   const applyMatrixFilter=(next:MatrixFilter)=>{setMatrixFilter(next);setPage(0);};
+  useEffect(()=>{setPage(p=>Math.min(p,Math.max(0,Math.ceil(matrixRows.length/100)-1)));},[matrixRows.length]);
   const visibleMatrixRows=matrixRows.slice(page*100,(page+1)*100);
   const matrixEdit=(key:string,original:PointDay,patch:Partial<PointDay>)=>{
     setMatrixDrafts(all=>{
@@ -225,7 +232,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
         <h2>Controle de ponto <small>início da folha mensal</small></h2>
         <p>Preencha ou importe os horários, revise o mês inteiro e imprima as fichas para assinatura física. A conferência orienta e não bloqueia a emissão do holerite.</p>
         <ol className="time-steps" aria-label="Fluxo mensal">
-          <li><button type="button" className="flow-link" onClick={()=>switchView('settings')}>1. Jornada</button></li><li><button type="button" className="flow-link" onClick={()=>switchView('individual')}>2. Preenchimento</button></li><li><button type="button" className="flow-link" onClick={()=>switchView('matrix')}>3. Conferência em lote</button></li><li><button type="button" className="flow-link" onClick={()=>switchView('matrix')}>4. Impressão e assinatura</button></li><li><button type="button" className="flow-link" onClick={()=>onOpenPayroll?.()}>5. Holerite</button></li>
+          <li><button type="button" className="flow-link" onClick={()=>switchView('settings')}>1. Jornada</button></li><li><button type="button" className="flow-link" onClick={()=>switchView('individual')}>2. Preenchimento</button></li><li><button type="button" className="flow-link" onClick={()=>switchView('matrix')}>3. Conferência em lote</button></li><li><button type="button" className="flow-link" onClick={()=>switchView('matrix')}>4. Impressão e assinatura</button></li><li><button type="button" className="flow-link" disabled={!onOpenPayroll||busy} onClick={()=>onOpenPayroll?.()}>5. Holerite</button></li>
         </ol>
       </div>
     </section>
@@ -285,7 +292,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
             <small>Trabalhadas {duration(sheet.summary.workedMinutes)} | Extras {duration(sheet.summary.overtimeMinutes)} | Déficit {duration(sheet.summary.deficitMinutes)} | Noturnas {duration(sheet.summary.nightMinutes)} | Saldo banco {bankBalance<0?'-':'+'}{duration(bankBalance)}</small></div>
           {sheetIssues.length>0&&<details className="time-audit"><summary>Conferências recomendadas: {sheetIssues.length} aviso(s), sem impedimento</summary><ul>{sheetIssues.slice(0,35).map((issue,i)=><li key={i}>{dayText(issue.date)} · {issue.message}</li>)}</ul></details>}
           <div className="time-mini-config"><strong>Jornada deste funcionário</strong>
-            {fields.map(field=><label key={field}>{timeLabel[field]}<input type="time" value={schedule[field]} disabled={readOnly||sheet.status==='closed'} onChange={e=>setScheduleField(field,e.target.value)}/></label>)}
+            {fields.map(field=><label key={field}>{timeLabel[field]}<input type="time" value={schedule[field]} disabled={readOnly||busy||sheet.status==='closed'} onChange={e=>setScheduleField(field,e.target.value)}/></label>)}
             <button className="btn btn-secondary" disabled={readOnly||busy||sheet.status==='closed'} onClick={()=>void run(saveSchedule)}>Salvar jornada</button></div>
           <div className="time-actions">
             <button className="btn btn-secondary" disabled={readOnly||busy||sheet.status==='closed'} onClick={()=>{
