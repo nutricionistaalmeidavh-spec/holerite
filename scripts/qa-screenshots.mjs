@@ -151,13 +151,13 @@ try {
 
   await go('Visão geral');
   await screenshot('10-visao-geral', 'Dashboard após cadastros');
-  await page.locator('.metric-grid').getByRole('button',{name:/Colaboradores ativos/}).click();
+  await page.locator('.metric-grid').getByRole('button',{name:/^Colaboradores ativos/}).click();
   assert.equal(await page.getByLabel('Somente ativos').isChecked(),true);
   await go('Visão geral');
-  await page.locator('.metric-grid').getByRole('button',{name:/Holerites gerados/}).click();
+  await page.locator('.metric-grid').getByRole('button',{name:/^Holerites gerados/}).click();
   assert.match(await page.getByLabel('Competência do histórico').inputValue(),/^20\d{2}-\d{2}$/);
   await go('Visão geral');
-  await page.locator('.metric-grid').getByRole('button',{name:/Ponto aguardando fechamento/}).click();
+  await page.locator('.metric-grid').getByRole('button',{name:/^Ponto aguardando fechamento/}).click();
   await page.getByLabel('Situação da matriz').waitFor();
   assert.equal(await page.getByLabel('Situação da matriz').inputValue(),'open');
   await go('Holerites e folha');
@@ -243,7 +243,7 @@ try {
   await go('Visão geral');
   // Reload after direct fixture changes; keep the same isolated SQLite file.
   await page.reload();await page.getByRole('heading',{name:'Visão geral',exact:true}).waitFor();
-  await page.locator('.metric-grid').getByRole('button',{name:/Ponto aguardando fechamento/}).click();
+  await page.locator('.metric-grid').getByRole('button',{name:/^Ponto aguardando fechamento/}).click();
   await page.getByRole('button',{name:'Criar calendários da equipe'}).click();
   await generationDialog.getByRole('button',{name:'Gerar sem incluir'}).click();
   const firstNote=page.locator('.time-matrix-workspace input[aria-label^="Observações "]').first();
