@@ -146,13 +146,13 @@ try {
 
   await go('Visão geral');
   await screenshot('10-visao-geral', 'Dashboard após cadastros');
-  await page.getByRole('button',{name:/Colaboradores ativos/}).click();
+  await page.locator('.metric-grid').getByRole('button',{name:/Colaboradores ativos/}).click();
   assert.equal(await page.getByLabel('Somente ativos').isChecked(),true);
   await go('Visão geral');
-  await page.getByRole('button',{name:/Holerites gerados/}).click();
+  await page.locator('.metric-grid').getByRole('button',{name:/Holerites gerados/}).click();
   assert.match(await page.getByLabel('Competência do histórico').inputValue(),/^20\d{2}-\d{2}$/);
   await go('Visão geral');
-  await page.getByRole('button',{name:/Ponto aguardando fechamento/}).click();
+  await page.locator('.metric-grid').getByRole('button',{name:/Ponto aguardando fechamento/}).click();
   await page.getByLabel('Situação da matriz').waitFor();
   assert.equal(await page.getByLabel('Situação da matriz').inputValue(),'open');
   await go('Holerites e folha');
@@ -186,6 +186,7 @@ try {
   await screenshot('20-holerite-pago', 'Holerite marcado como pago');
 
   await go('Histórico');
+  await page.getByTitle('Abrir holerite').first().waitFor();
   await screenshot('21-historico', 'Histórico de recibos e ações de exportação');
   await page.getByLabel('Filtrar por tipo de documento').selectOption('monthly');
   await screenshot('22-historico-filtrado', 'Histórico filtrado por salário mensal');
