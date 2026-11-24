@@ -164,7 +164,7 @@ export interface HoleriteAPI {
   markPaid(id: string): Promise<PayrollRecord>;
   deleteDraft(id: string): Promise<void>;
   exportPDF(id: string): Promise<boolean>;
-  print(id: string): Promise<void>;
+  print(id: string): Promise<boolean>;
   exportBackup(): Promise<boolean>;
   exportCSV(input:import('./workspace-scope').PayrollScope): Promise<boolean>;
   getTimeConfig(companyId:string):Promise<TimeConfig>;
