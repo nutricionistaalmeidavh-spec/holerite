@@ -5,6 +5,8 @@ import type {PointDay,PointSummary,WorkSchedule,PointIssue} from '../src/shared/
 
 export interface TimeConfig {enabled:boolean;variationMinutes:number;schedule:WorkSchedule;}
 export interface TimeSheet {employeeId:string;companyId:string;competence:string;status:'draft'|'closed';revision:number;days:PointDay[];summary:PointSummary;issues:PointIssue[];closedAt:string|null;}
+export interface MatrixPageInput {companyId:string;competence:string;page:number;pageSize:number;search?:string;status?:'all'|'open'|'closed'|'issues';report?:boolean;}
+export interface MatrixPageResult {rows:Array<TimeSheet&{employeeName:string}>;total:number;closed:number;teamTotal:number;suggested:number;}
 export interface MatrixChange {employeeId:string;competence:string;day:PointDay;expectedRevision?:number;}
 type Row=Record<string,unknown>;
 const now=()=>new Date().toISOString();
@@ -58,6 +60,7 @@ export class AttendanceStore {
     `);
     const auditColumns=new Set((this.db.prepare('PRAGMA table_info(time_audit)').all() as Row[]).map(row=>String(row.name)));
     if(!auditColumns.has('actor_id'))this.db.exec('ALTER TABLE time_audit ADD COLUMN actor_id TEXT;');
+    this.db.function('point_contains',(value,query)=>String(value??'').toLowerCase().includes(String(query??'').toLowerCase())?1:0);
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_time_import_company_hash ON time_import_batches(company_id,content_hash);
       CREATE INDEX IF NOT EXISTS idx_time_import_company_history ON time_import_batches(company_id,created_at DESC,id DESC);
       CREATE INDEX IF NOT EXISTS idx_time_audit_page ON time_audit(employee_id,competence,created_at DESC,id DESC);
@@ -138,21 +141,22 @@ export class AttendanceStore {
       days,issues:diagnosePointDays(days,issueSchedule,competence),summary:snapshot?.summary??assessMonth(days,this.getSchedule(employeeId),Number(employee.salary_cents)),
       closedAt:row?.closed_at?String(row.closed_at):null};
   }
-  matrix(companyId:string,competence:string,page?:{offset:number;size:number}):Array<TimeSheet&{employeeName:string}> {
+  matrix(companyId:string,competence:string,page?:{offset:number;size:number;where?:string;params?:string[]}):Array<TimeSheet&{employeeName:string}> {
     this.requireEnabled(companyId);
     if(!validMonth(competence))throw new Error('Competência inválida.');
     const config=this.getConfig(companyId);
     const size=page?Math.max(1,Math.min(250,Math.trunc(page.size))):-1;
     const offset=page?Math.max(0,Math.trunc(page.offset)):0;
+    const where=page?.where??'e.company_id=? AND e.active=1';
+    const params=page?.params??[companyId];
     const employees=this.db.prepare(`SELECT e.id,e.name,e.salary_cents,es.schedule_json,s.status,s.revision,s.closed_at,s.closed_snapshot_json
       FROM employees e LEFT JOIN time_employee_schedules es ON es.employee_id=e.id
       LEFT JOIN time_sheets s ON s.employee_id=e.id AND s.competence=?
-      WHERE e.company_id=? AND e.active=1 ORDER BY e.name,e.id LIMIT ? OFFSET ?`).all(competence,companyId,size,offset) as Row[];
+      WHERE ${where} ORDER BY e.name,e.id LIMIT ? OFFSET ?`).all(competence,...params,size,offset) as Row[];
     const groups=new Map<string,PointDay[]>();
     if(!employees.length)return [];
-    const daysQuery=page?`SELECT d.* FROM (SELECT id FROM employees WHERE company_id=? AND active=1 ORDER BY name,id LIMIT ? OFFSET ?) e JOIN time_days d ON d.employee_id=e.id AND d.competence=? ORDER BY d.employee_id,d.date`:`SELECT d.* FROM employees e JOIN time_days d ON d.employee_id=e.id AND d.competence=? WHERE e.company_id=? AND e.active=1 ORDER BY e.id,d.date`;
-    const daysStatement=this.db.prepare(daysQuery);
-    const records=page?daysStatement.iterate(companyId,size,offset,competence):daysStatement.iterate(competence,companyId);
+    const daysQuery=`SELECT d.* FROM (SELECT e.id FROM employees e LEFT JOIN time_sheets s ON s.employee_id=e.id AND s.competence=? WHERE ${where} ORDER BY e.name,e.id LIMIT ? OFFSET ?) e JOIN time_days d ON d.employee_id=e.id AND d.competence=? ORDER BY d.employee_id,d.date`;
+    const records=this.db.prepare(daysQuery).iterate(competence,...params,size,offset,competence);
     for(const row of records){
       const id=String(row.employee_id);const list=groups.get(id)??[];list.push(this.dayFrom(row));groups.set(id,list);
     }
@@ -162,6 +166,39 @@ export class AttendanceStore {
       const schedule=snapshot?.schedule??(row.schedule_json?json<WorkSchedule>(row.schedule_json):config.schedule);
       return {employeeId,companyId,competence,employeeName:String(row.name),status:row.status==='closed'?'closed':'draft',revision:Number(row.revision??0),days,issues:diagnosePointDays(days,schedule,competence),summary:snapshot?.summary??assessMonth(days,schedule,Number(row.salary_cents)),closedAt:row.closed_at?String(row.closed_at):null};
     });
+  }
+  matrixPage(input:MatrixPageInput):MatrixPageResult{
+    const {companyId,competence}=input;
+    const team=this.overview(companyId,competence);
+    const size=Number.isSafeInteger(input.pageSize)?Math.min(100,Math.max(1,input.pageSize)):10;
+    const page=Number.isSafeInteger(input.page)?Math.max(0,input.page):0;
+    const clauses=['e.company_id=?','e.active=1'],params=[companyId];
+    if(input.status==='closed')clauses.push("s.status='closed'");
+    if(input.status==='open')clauses.push("COALESCE(s.status,'draft')='draft'");
+    const search=String(input.search??'').trim();
+    if(search){
+      if(input.report){clauses.push("point_contains(e.name,?) OR point_contains(e.sector,?) OR point_contains(e.job_site,?) OR point_contains(e.cost_center,?)");params.push(search,search,search,search);}
+      else {clauses.push("(point_contains(e.name,?) OR EXISTS(SELECT 1 FROM time_days d WHERE d.employee_id=e.id AND d.competence=? AND instr(d.date,?)>0))");params.push(search,competence,search);}
+    }
+    const where=clauses.map(c=>'('+c+')').join(' AND ');
+    const total=Number((this.db.prepare('SELECT COUNT(*) AS n FROM employees e LEFT JOIN time_sheets s ON s.employee_id=e.id AND s.competence=? WHERE '+where).get(competence,...params) as Row).n);
+    const suggested=Number((this.db.prepare("SELECT COUNT(*) AS n FROM employees e JOIN time_days d ON d.employee_id=e.id AND d.competence=? WHERE e.company_id=? AND e.active=1 AND d.source='suggested'").get(competence,companyId) as Row).n);
+    if(input.status==='issues'){
+      // Diagnostics depend on schedule and punches. Scan bounded employee batches only on this explicit filter.
+      let matched=0;const rows:MatrixPageResult['rows']=[];
+      for(let offset=0;offset<total;offset+=100){
+        for(const sheet of this.matrix(companyId,competence,{offset,size:100,where,params})){
+          if(!sheet.issues.some(issue=>!search||sheet.employeeName.toLowerCase().includes(search.toLowerCase())||issue.date.includes(search)))continue;
+          if(matched>=page*size&&rows.length<size)rows.push(sheet);matched++;
+        }
+      }
+      return {rows,total:matched,closed:team.closed,teamTotal:team.total,suggested};
+    }
+    return {rows:this.matrix(companyId,competence,{offset:Math.min(page,Math.ceil(total/size))*size,size,where,params}),total,closed:team.closed,teamTotal:team.total,suggested};
+  }
+  teamIds(companyId:string,competence:string):string[]{
+    this.overview(companyId,competence);
+    return (this.db.prepare("SELECT e.id FROM employees e LEFT JOIN time_sheets s ON s.employee_id=e.id AND s.competence=? WHERE e.company_id=? AND e.active=1 AND COALESCE(s.status,'draft')='draft' ORDER BY e.name,e.id").all(competence,companyId) as Row[]).map(r=>String(r.id));
   }
   *matrixBatches(companyId:string,competence:string,size=100):IterableIterator<Array<TimeSheet&{employeeName:string}>>{
     const batchSize=Number.isSafeInteger(size)?Math.max(1,Math.min(250,size)):100;
