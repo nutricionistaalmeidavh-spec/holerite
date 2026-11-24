@@ -60,6 +60,7 @@ export class AttendanceStore {
     if(!auditColumns.has('actor_id'))this.db.exec('ALTER TABLE time_audit ADD COLUMN actor_id TEXT;');
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_time_import_company_hash ON time_import_batches(company_id,content_hash);
       CREATE INDEX IF NOT EXISTS idx_time_import_company_history ON time_import_batches(company_id,created_at DESC,id DESC);
+      CREATE INDEX IF NOT EXISTS idx_time_audit_page ON time_audit(employee_id,competence,created_at DESC,id DESC);
       CREATE INDEX IF NOT EXISTS idx_time_sheets_employee_closed ON time_sheets(employee_id,status,competence);
       CREATE INDEX IF NOT EXISTS idx_time_days_month_employee ON time_days(competence,employee_id,date);`);
     // Backwards-compatible migration of the opt-in version: point is now the core.
@@ -171,6 +172,14 @@ export class AttendanceStore {
     this.employee(employeeId);
     return this.db.prepare('SELECT ta.date,ta.action,ta.before_json,ta.after_json,ta.reason,ta.created_at,ta.actor_id,op.name AS actor_name FROM time_audit ta LEFT JOIN time_operators op ON ta.actor_id=op.id WHERE ta.employee_id=? AND ta.competence=? ORDER BY ta.created_at DESC LIMIT 300').all(employeeId,competence) as Row[];
   }
+  auditPage(employeeId:string,competence:string,page:number,pageSize=50):{rows:Row[];total:number}{
+    this.employee(employeeId);if(!validMonth(competence))throw new Error('Competência inválida.');
+    const size=Number.isSafeInteger(pageSize)?Math.min(200,Math.max(1,pageSize)):50;
+    const total=Number((this.db.prepare('SELECT COUNT(*) AS n FROM time_audit WHERE employee_id=? AND competence=?').get(employeeId,competence) as Row).n);
+    const offset=(Number.isSafeInteger(page)?Math.min(Math.ceil(total/size),Math.max(0,page)):0)*size;
+    const rows=this.db.prepare('SELECT ta.date,ta.action,ta.reason,ta.created_at,op.name AS actor_name FROM time_audit ta LEFT JOIN time_operators op ON ta.actor_id=op.id WHERE ta.employee_id=? AND ta.competence=? ORDER BY ta.created_at DESC,ta.id DESC LIMIT ? OFFSET ?').all(employeeId,competence,size,offset) as Row[];
+    return {rows,total};
+  }
   saveMatrix(changes:MatrixChange[],overwriteImported=false):number {
     if(!Array.isArray(changes)||!changes.length)throw new Error('Informe os dias para salvar.');
     const members=new Map<string,{companyId:string;revision:number}>();
@@ -201,11 +210,12 @@ export class AttendanceStore {
     }
     this.db.exec('BEGIN IMMEDIATE;');
     try {
+      const createSheet=this.db.prepare(`INSERT INTO time_sheets(employee_id,company_id,competence,revision,updated_at) VALUES(?,?,?,0,?) ON CONFLICT(employee_id,competence) DO NOTHING`);
+      const updateRevision=this.db.prepare('UPDATE time_sheets SET revision=revision+1,updated_at=? WHERE employee_id=? AND competence=?');
       for(const [group,member] of members){
         const [employeeId,competence]=group.split('|');
-        this.db.prepare(`INSERT INTO time_sheets(employee_id,company_id,competence,revision,updated_at)
-          VALUES(?,?,?,0,?) ON CONFLICT(employee_id,competence) DO NOTHING`).run(employeeId,member.companyId,competence,now());
-        const latest=this.db.prepare('SELECT revision,status FROM time_sheets WHERE employee_id=? AND competence=?').get(employeeId,competence) as Row;
+        createSheet.run(employeeId,member.companyId,competence,now());
+        const latest=readState.get(employeeId,competence) as Row;
         if(latest.status==='closed'||Number(latest.revision)!==member.revision)
           throw new Error('Ficha modificada enquanto era salva.');
       }
@@ -222,8 +232,7 @@ export class AttendanceStore {
       }
       for(const group of members.keys()){
         const [id,competence]=group.split('|');
-        this.db.prepare('UPDATE time_sheets SET revision=revision+1,updated_at=? WHERE employee_id=? AND competence=?')
-          .run(now(),id,competence);
+        updateRevision.run(now(),id,competence);
       }
       this.db.exec('COMMIT;');
       return changes.length;
@@ -327,6 +336,14 @@ export class AttendanceStore {
     this.requireEnabled(companyId);
     return this.db.prepare('SELECT filename,processed,created_at FROM time_import_batches WHERE company_id=? ORDER BY created_at DESC LIMIT 30')
       .all(companyId) as Row[];
+  }
+  importPage(companyId:string,page:number,pageSize=50):{rows:Row[];total:number}{
+    this.requireEnabled(companyId);
+    const size=Number.isSafeInteger(pageSize)?Math.min(200,Math.max(1,pageSize)):50;
+    const total=Number((this.db.prepare('SELECT COUNT(*) AS n FROM time_import_batches WHERE company_id=?').get(companyId) as Row).n);
+    const offset=(Number.isSafeInteger(page)?Math.min(Math.ceil(total/size),Math.max(0,page)):0)*size;
+    const rows=this.db.prepare('SELECT filename,processed,created_at FROM time_import_batches WHERE company_id=? ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?').all(companyId,size,offset) as Row[];
+    return {rows,total};
   }
   /** Anexos locais no SQLite: acompanham backup e não fazem upload. */
   addAttachment(employeeId:string,date:string,filename:string,mime:string,content:Uint8Array):
