@@ -33,7 +33,7 @@ type GenerationRequest={scope:'individual'|'team';companyId:string;competence:st
 
 export function TimeControlPage({companyId,competence,employees,onPayrollUpdated,initialEmployeeId='',initialView='individual',initialMatrixFilter='all',readOnly=false,onDirtyChange,onBusyChange,onOpenPayroll}:{
   companyId:string;competence:string;employees:Employee[];
-  initialEmployeeId?:string;initialView?:TimeView;initialMatrixFilter?:MatrixFilter;readOnly?:boolean;onDirtyChange?:(dirty:boolean)=>void;onBusyChange?:(busy:boolean)=>void;onOpenPayroll?:(employeeId:string)=>void;onPayrollUpdated:(employeeId:string)=>void
+  initialEmployeeId?:string;initialView?:TimeView;initialMatrixFilter?:MatrixFilter;readOnly?:boolean;onDirtyChange?:(dirty:boolean)=>void;onBusyChange?:(busy:boolean)=>void;onOpenPayroll?:(employeeId:string)=>void;onPayrollUpdated:(employeeId:string)=>void|Promise<void>
 }){
   const [config,setConfig]=useState<TimeConfig|null>(null);
   const [employeeId,setEmployeeId]=useState('');
@@ -175,13 +175,15 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
       revision:s.revision,competence:s.competence,day
     }))),[matrix]);
   const matrixRows=useMemo(()=>(matrixFilter==='changed'?Object.values(draftRows.current):matrixReady?allMatrixRows:[]).filter(row=>{
-    const matches=row.employeeName.toLowerCase().includes(filter.toLowerCase())||row.day.date.includes(filter);
+    const search=filter.trim().toLowerCase();
+    const matches=row.employeeName.toLowerCase().includes(search)||row.day.date.includes(search);
     const closed=matrixByEmployee.get(row.employeeId)?.status==='closed';
     return matches&&(matrixFilter==='all'||(matrixFilter==='closed'&&closed)||(matrixFilter==='open'&&!closed)||(matrixFilter==='issues'&&matrixIssueKeys.has(row.key))||(matrixFilter==='changed'&&!!matrixDrafts[row.key]));
   }),[allMatrixRows,filter,matrixFilter,matrixByEmployee,matrixIssueKeys,matrixDrafts,matrixReady]);
   const applyMatrixFilter=(next:MatrixFilter)=>{setMatrixFilter(next);setPage(0);};
   const visibleMatrixRows=matrixFilter==='changed'?matrixRows.slice(page*100,(page+1)*100):matrixRows;
   const matrixPageTotal=matrixFilter==='changed'?Math.max(1,Math.ceil(matrixRows.length/100)):Math.max(1,Math.ceil(matrixInfo.total/matrixPageSize));
+  useEffect(()=>{if(matrixFilter==='changed')setPage(p=>Math.min(p,matrixPageTotal-1));},[matrixFilter,matrixPageTotal]);
   const matrixEdit=(key:string,original:PointDay,patch:Partial<PointDay>)=>{
     const row=draftRows.current[key]??allMatrixRows.find(r=>r.key===key);if(!row)return;draftRows.current[key]=row;
     setMatrixDrafts(all=>{
@@ -347,7 +349,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
             <button className="btn btn-secondary" disabled={busy} onClick={()=>void run(async()=>{await saveDays();await window.holerites.printTimeSheet({employeeId,competence});})}>Imprimir</button>
             {sheet.status==='draft'?<button className="btn btn-secondary" disabled={readOnly||busy} onClick={()=>void run(async()=>{await saveDays();await window.holerites.closeTimeSheet({employeeId,competence});await loadSheet();setNotice('Ficha fechada.');})}>Fechar competência</button>:
               <button className="btn btn-secondary" disabled={readOnly||busy} onClick={()=>{const reason=window.prompt('Justificativa da reabertura (mín. 8 caracteres):');if(reason)void run(async()=>{await window.holerites.reopenTimeSheet({employeeId,competence,reason});await loadSheet();});}}>Reabrir</button>}
-            <button className="btn btn-primary" disabled={readOnly||busy} onClick={()=>void run(async()=>{await saveDays();await window.holerites.applyTimeToPayroll({employeeId,competence});onPayrollUpdated(employeeId);})}>Gerar holerite do ponto</button>
+            <button className="btn btn-primary" disabled={readOnly||busy} onClick={()=>void run(async()=>{await saveDays();await window.holerites.applyTimeToPayroll({employeeId,competence});await onPayrollUpdated(employeeId);})}>Gerar holerite do ponto</button>
           </div>
           <div className="table-scroll time-table"><table className="data-table"><thead><tr>
             <th>Dia</th><th>Tipo</th><th>Entrada</th><th>Saída almoço</th><th>Retorno</th><th>Saída</th><th>Origem</th><th>Observações</th><th>Documentos</th>
@@ -439,7 +441,7 @@ export function TimeControlPage({companyId,competence,employees,onPayrollUpdated
         })}</tbody></table></div>
         <div className="time-pagination"><span>{visibleMatrixRows.length} dias nesta página · Página {page+1} de {matrixPageTotal}</span>
           <button className="btn btn-secondary" disabled={page===0} onClick={()=>setPage(p=>p-1)}>Anterior</button>
-          <button className="btn btn-secondary" disabled={page+1>=matrixPageTotal||!matrixReady} onClick={()=>setPage(p=>p+1)}>Próxima</button></div>
+          <button className="btn btn-secondary" disabled={page+1>=matrixPageTotal||(matrixFilter!=='changed'&&!matrixReady)} onClick={()=>setPage(p=>p+1)}>Próxima</button></div>
       </section>}
 
       {view==='reports'&&<section className="card time-sheet">
