@@ -100,7 +100,7 @@ export class TimeImporter {
     if(!sheet)throw new Error('Planilha vazia.');
     const headers:string[]=[];
     const first=sheet.getRow(1);
-    const count=Math.min(sheet.columnCount,50);
+    const count=sheet.columnCount;
     for(let c=1;c<=count;c++)headers.push(textOf(first.getCell(c).value)||'Coluna '+c);
     if(!headers.length||new Set(headers).size!==headers.length)throw new Error('Cabeçalhos vazios ou repetidos.');
     const rows:Array<Record<string,unknown>>=[];
